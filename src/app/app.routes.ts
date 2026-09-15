@@ -32,11 +32,6 @@ export const routes: Routes = [
       import('./features/grocery/grocery').then(m => m.GroceryComponent)
   },
   {
-    path: 'settings',
-    loadComponent: () =>
-      import('./features/settings/settings').then(m => m.SettingsComponent)
-  },
-  {
     path: '**',
     redirectTo: 'dashboard'
   }

@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { environment } from '../../../environments/environment';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
@@ -8,10 +9,7 @@ import { MealSchedule, MealType } from '../models/meal-schedule.model';
 export interface SupabaseConfig {
   url: string;
   anonKey: string;
-  isDemoMode: boolean;
 }
-
-const STORAGE_KEY = 'tffin_supabase_config';
 
 @Injectable({
   providedIn: 'root'
@@ -19,7 +17,10 @@ const STORAGE_KEY = 'tffin_supabase_config';
 export class SupabaseService {
   private client: SupabaseClient | null = null;
 
-  public config = signal<SupabaseConfig>(this.loadConfig());
+  public config = signal<SupabaseConfig>({
+    url: (environment.supabaseUrl || '').trim(),
+    anonKey: (environment.supabaseAnonKey || '').trim()
+  });
   public isConnected = signal<boolean>(false);
   public connectionError = signal<string | null>(null);
 
@@ -27,36 +28,9 @@ export class SupabaseService {
     this.initializeClient();
   }
 
-  private loadConfig(): SupabaseConfig {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {
-      console.warn('Failed to parse saved Supabase configuration:', e);
-    }
-
-    return {
-      url: '',
-      anonKey: '',
-      isDemoMode: true
-    };
-  }
-
-  public saveConfig(config: SupabaseConfig): void {
-    this.config.set(config);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    } catch (e) {
-      console.error('Failed to save config to local storage', e);
-    }
-    this.initializeClient();
-  }
-
   private initializeClient(): void {
     const current = this.config();
-    if (!current.isDemoMode && current.url && current.anonKey) {
+    if (current.url && current.anonKey) {
       try {
         this.client = createClient(current.url, current.anonKey);
         this.testConnection();
@@ -67,13 +41,15 @@ export class SupabaseService {
     } else {
       this.client = null;
       this.isConnected.set(false);
-      this.connectionError.set(null);
+      this.connectionError.set(
+        'Supabase environment variables (SUPABASE_URL, SUPABASE_ANON_KEY) are not configured.'
+      );
     }
   }
 
   public async testConnection(): Promise<{ success: boolean; error?: string }> {
     if (!this.client) {
-      return { success: false, error: 'No active Supabase client configured.' };
+      return { success: false, error: 'No active Supabase client configured. Check environment variables.' };
     }
 
     try {
@@ -93,8 +69,8 @@ export class SupabaseService {
     }
   }
 
-  public get isDemo(): boolean {
-    return this.config().isDemoMode || !this.client;
+  public get hasClient(): boolean {
+    return !!this.client;
   }
 
   // Database Access Methods

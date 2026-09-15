@@ -4,7 +4,6 @@ import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
 import { MealSchedule, MealStockStatus, MealType, ShortageReportItem } from '../models/meal-schedule.model';
-import { INITIAL_DISHES, INITIAL_INGREDIENTS, INITIAL_INVENTORY, generateInitialSchedule } from './mock-data';
 
 export function getTodayString(): string {
   const d = new Date();
@@ -31,26 +30,27 @@ export class MealStoreService {
   }
 
   public async init(): Promise<void> {
+    if (!this.supabase.hasClient) {
+      this.clearState();
+      return;
+    }
+
     this.isLoading.set(true);
     try {
-      if (!this.supabase.isDemo) {
-        await this.loadFromSupabase();
-      } else {
-        this.loadMockData();
-      }
+      await this.loadFromSupabase();
     } catch (err: any) {
-      console.warn('Falling back to local demo state:', err);
-      this.loadMockData();
+      console.error('Failed to load from Supabase:', err);
+      this.clearState();
     } finally {
       this.isLoading.set(false);
     }
   }
 
-  private loadMockData(): void {
-    this.ingredients.set([...INITIAL_INGREDIENTS]);
-    this.inventory.set([...INITIAL_INVENTORY]);
-    this.dishes.set([...INITIAL_DISHES]);
-    this.schedules.set(generateInitialSchedule());
+  public clearState(): void {
+    this.ingredients.set([]);
+    this.inventory.set([]);
+    this.dishes.set([]);
+    this.schedules.set([]);
   }
 
   public async loadFromSupabase(): Promise<void> {
@@ -244,6 +244,11 @@ export class MealStoreService {
 
   // State Mutations with Optimistic Updates
   public async adjustHeadcount(scheduleDate: string, mealType: MealType, delta: number): Promise<void> {
+    if (!this.supabase.hasClient) {
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      return;
+    }
+
     // 1. Optimistic local update
     const current = this.schedules();
     const existingIndex = current.findIndex(
@@ -257,15 +262,13 @@ export class MealStoreService {
       updated[existingIndex] = { ...target, headcount: newCount };
       this.schedules.set(updated);
 
-      // 2. Call Supabase RPC if active
-      if (!this.supabase.isDemo) {
-        try {
-          await this.supabase.updateHeadcountRPC(scheduleDate, mealType, delta);
-        } catch (err: any) {
-          this.showNotification(`Error updating headcount: ${err.message}`, 'error');
-          // Revert on failure
-          this.schedules.set(current);
-        }
+      // 2. Call Supabase RPC
+      try {
+        await this.supabase.updateHeadcountRPC(scheduleDate, mealType, delta);
+      } catch (err: any) {
+        this.showNotification(`Error updating headcount: ${err.message}`, 'error');
+        // Revert on failure
+        this.schedules.set(current);
       }
     }
   }
@@ -276,45 +279,37 @@ export class MealStoreService {
     dish_id: string,
     headcount: number = 3
   ): Promise<void> {
-    const current = this.schedules();
-    const existingIndex = current.findIndex(
-      s => s.schedule_date === schedule_date && s.meal_type === meal_type
-    );
-
-    let updatedItem: MealSchedule;
-
-    if (existingIndex >= 0) {
-      updatedItem = {
-        ...current[existingIndex],
-        dish_id,
-        headcount
-      };
-      const list = [...current];
-      list[existingIndex] = updatedItem;
-      this.schedules.set(list);
-    } else {
-      updatedItem = {
-        id: 'sched-' + Date.now(),
-        schedule_date,
-        meal_type,
-        dish_id,
-        headcount
-      };
-      this.schedules.set([...current, updatedItem]);
+    if (!this.supabase.hasClient) {
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      return;
     }
 
-    this.showNotification(`Meal scheduled for ${meal_type} on ${schedule_date}`, 'success');
+    try {
+      const saved = await this.supabase.upsertMealSchedule(schedule_date, meal_type, dish_id, headcount);
+      const current = this.schedules();
+      const existingIndex = current.findIndex(
+        s => s.schedule_date === schedule_date && s.meal_type === meal_type
+      );
 
-    if (!this.supabase.isDemo) {
-      try {
-        await this.supabase.upsertMealSchedule(schedule_date, meal_type, dish_id, headcount);
-      } catch (err: any) {
-        this.showNotification(`Error saving schedule: ${err.message}`, 'error');
+      if (existingIndex >= 0) {
+        const list = [...current];
+        list[existingIndex] = { ...current[existingIndex], dish_id, headcount };
+        this.schedules.set(list);
+      } else {
+        this.schedules.set([...current, saved]);
       }
+      this.showNotification(`Meal scheduled for ${meal_type} on ${schedule_date}`, 'success');
+    } catch (err: any) {
+      this.showNotification(`Error saving schedule: ${err.message}`, 'error');
     }
   }
 
   public async updateInventoryQuantity(ingredientId: string, newQuantity: number, minThreshold?: number): Promise<void> {
+    if (!this.supabase.hasClient) {
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      return;
+    }
+
     const current = this.inventory();
     const idx = current.findIndex(i => i.ingredient_id === ingredientId);
 
@@ -330,12 +325,11 @@ export class MealStoreService {
       updated[idx] = item;
       this.inventory.set(updated);
 
-      if (!this.supabase.isDemo) {
-        try {
-          await this.supabase.updateInventory(ingredientId, item.quantity, item.min_threshold);
-        } catch (err: any) {
-          this.showNotification(`Error updating inventory: ${err.message}`, 'error');
-        }
+      try {
+        await this.supabase.updateInventory(ingredientId, item.quantity, item.min_threshold);
+      } catch (err: any) {
+        this.showNotification(`Error updating inventory: ${err.message}`, 'error');
+        this.inventory.set(current);
       }
     }
   }
@@ -355,43 +349,31 @@ export class MealStoreService {
     initialStock: number = 0,
     minThreshold: number = 0
   ): Promise<void> {
-    if (!this.supabase.isDemo) {
-      try {
-        const newIng = await this.supabase.createIngredient(
-          { name, category, unit },
-          initialStock,
-          minThreshold
-        );
-        this.ingredients.set([...this.ingredients(), newIng]);
-        this.inventory.set([
-          ...this.inventory(),
-          {
-            id: 'inv-' + Date.now(),
-            ingredient_id: newIng.id,
-            quantity: initialStock,
-            min_threshold: minThreshold,
-            updated_at: new Date().toISOString()
-          }
-        ]);
-        this.showNotification(`Added ingredient: ${name}`, 'success');
-      } catch (err: any) {
-        this.showNotification(`Failed to create ingredient: ${err.message}`, 'error');
-      }
-    } else {
-      const id = 'ing-' + Date.now();
-      const newIng: Ingredient = { id, name, category, unit };
+    if (!this.supabase.hasClient) {
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      return;
+    }
+
+    try {
+      const newIng = await this.supabase.createIngredient(
+        { name, category, unit },
+        initialStock,
+        minThreshold
+      );
       this.ingredients.set([...this.ingredients(), newIng]);
       this.inventory.set([
         ...this.inventory(),
         {
           id: 'inv-' + Date.now(),
-          ingredient_id: id,
+          ingredient_id: newIng.id,
           quantity: initialStock,
           min_threshold: minThreshold,
           updated_at: new Date().toISOString()
         }
       ]);
       this.showNotification(`Added ingredient: ${name}`, 'success');
+    } catch (err: any) {
+      this.showNotification(`Failed to create ingredient: ${err.message}`, 'error');
     }
   }
 
@@ -400,43 +382,33 @@ export class MealStoreService {
     cookNotes: string,
     recipeIngredients: { ingredient_id: string; qty_per_person: number }[]
   ): Promise<void> {
-    if (!this.supabase.isDemo) {
-      try {
-        await this.supabase.createDish({ name, cook_notes: cookNotes }, recipeIngredients);
-        await this.loadFromSupabase();
-        this.showNotification(`Created dish: ${name}`, 'success');
-      } catch (err: any) {
-        this.showNotification(`Failed to create dish: ${err.message}`, 'error');
-      }
-    } else {
-      const newDish: Dish = {
-        id: 'dish-' + Date.now(),
-        name,
-        cook_notes: cookNotes,
-        recipe_ingredients: recipeIngredients.map(ri => ({
-          id: 'ri-' + Math.random().toString(36).substr(2, 9),
-          dish_id: 'dish-' + Date.now(),
-          ingredient_id: ri.ingredient_id,
-          qty_per_person: ri.qty_per_person
-        }))
-      };
-      this.dishes.set([...this.dishes(), newDish]);
+    if (!this.supabase.hasClient) {
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      return;
+    }
+
+    try {
+      await this.supabase.createDish({ name, cook_notes: cookNotes }, recipeIngredients);
+      const dishes = await this.supabase.fetchDishes();
+      this.dishes.set(dishes);
       this.showNotification(`Created dish: ${name}`, 'success');
+    } catch (err: any) {
+      this.showNotification(`Failed to create dish: ${err.message}`, 'error');
     }
   }
 
   public async deleteDish(dishId: string): Promise<void> {
-    if (!this.supabase.isDemo) {
-      try {
-        await this.supabase.deleteDish(dishId);
-        this.dishes.set(this.dishes().filter(d => d.id !== dishId));
-        this.showNotification(`Dish removed`, 'info');
-      } catch (err: any) {
-        this.showNotification(`Failed to delete dish: ${err.message}`, 'error');
-      }
-    } else {
+    if (!this.supabase.hasClient) {
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      return;
+    }
+
+    try {
+      await this.supabase.deleteDish(dishId);
       this.dishes.set(this.dishes().filter(d => d.id !== dishId));
-      this.showNotification(`Dish removed`, 'info');
+      this.showNotification('Dish removed', 'info');
+    } catch (err: any) {
+      this.showNotification(`Failed to delete dish: ${err.message}`, 'error');
     }
   }
 
