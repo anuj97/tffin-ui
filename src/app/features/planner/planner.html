@@ -1,0 +1,127 @@
+<div class="planner-page">
+  <!-- Planner Header -->
+  <div class="planner-header">
+    <div>
+      <h1 class="page-title">Weekly Meal Planner</h1>
+      <p class="page-desc">Orchestrate breakfast, lunch, and dinner with automatic pantry stock validation.</p>
+    </div>
+
+    <!-- Week Navigation Controls -->
+    <div class="nav-controls">
+      <button (click)="resetToToday()" class="btn btn-secondary btn-sm">Current Week</button>
+      <div class="week-buttons">
+        <button (click)="prevWeek()" class="btn btn-secondary btn-icon" title="Previous 7 Days">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+        <button (click)="nextWeek()" class="btn btn-secondary btn-icon" title="Next 7 Days">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Weekly 7-Day Grid -->
+  <div class="calendar-grid">
+    @for (day of weekDays(); track day.dateStr) {
+      <div class="day-column" [class.is-today]="day.isToday">
+        <!-- Day Header -->
+        <div class="day-header">
+          <div class="day-info">
+            <span class="day-name">{{ day.dayName }}</span>
+            <span class="day-number">{{ day.dayNumber }}</span>
+          </div>
+          @if (day.isToday) {
+            <span class="today-pill">Today</span>
+          }
+          <div class="day-headcount-badge" title="Total Portions Expected">
+            {{ day.totalDayHeadcount }} pers.
+          </div>
+        </div>
+
+        <!-- Meals in Day -->
+        <div class="day-slots">
+          @for (m of day.meals; track m.mealType) {
+            <div 
+              class="meal-slot" 
+              [class.has-dish]="!!m.dish" 
+              [class.empty-slot]="!m.dish"
+              (click)="openSlotModal(day.dateStr, m.mealType, m.dish?.id, m.schedule?.headcount)">
+              
+              <div class="slot-header">
+                <span class="slot-type" [class]="m.mealType">{{ m.mealType }}</span>
+                @if (m.schedule) {
+                  <div class="slot-headcount" (click)="$event.stopPropagation()">
+                    <button (click)="adjustSlotHeadcount(day.dateStr, m.mealType, -1, $event)" class="btn-micro">-</button>
+                    <span>{{ m.schedule.headcount }}</span>
+                    <button (click)="adjustSlotHeadcount(day.dateStr, m.mealType, 1, $event)" class="btn-micro">+</button>
+                  </div>
+                }
+              </div>
+
+              @if (m.dish) {
+                <div class="slot-dish">
+                  <span class="dish-title">{{ m.dish.name }}</span>
+                  
+                  <!-- Stock Indicator -->
+                  <div class="stock-mini-badge" [class.stocked]="m.stockStatus?.isFullyStocked" [class.shortage]="!m.stockStatus?.isFullyStocked">
+                    @if (m.stockStatus?.isFullyStocked) {
+                      <span class="dot-ok"></span>
+                      <span>Stock Ready</span>
+                    } @else {
+                      <span class="dot-warn"></span>
+                      <span>{{ m.stockStatus?.missingItems?.length }} item(s) short</span>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <div class="slot-empty">
+                  <span>+ Plan {{ m.mealType }}</span>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- Plan/Edit Modal -->
+  @if (isModalOpen()) {
+    <div class="modal-backdrop" (click)="closeModal()">
+      <div class="modal-dialog" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Plan {{ modalMealType() | titlecase }} on {{ modalDate() }}</h3>
+          <button (click)="closeModal()" class="btn btn-ghost btn-sm">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Select Dish</label>
+            <select [value]="modalDishId()" (change)="modalDishId.set($any($event.target).value)" class="form-control">
+              @for (d of dishes(); track d.id) {
+                <option [value]="d.id">{{ d.name }}</option>
+              }
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Portions / Headcount</label>
+            <input 
+              type="number" 
+              [value]="modalHeadcount()" 
+              (input)="modalHeadcount.set(+$any($event.target).value)" 
+              min="1" 
+              class="form-control" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button (click)="closeModal()" class="btn btn-secondary">Cancel</button>
+          <button (click)="saveSchedule()" class="btn btn-primary">Save to Schedule</button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

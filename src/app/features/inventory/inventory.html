@@ -1,0 +1,217 @@
+<div class="inventory-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Pantry Inventory & Thresholds</h1>
+      <p class="page-desc">Track real-time pantry weights, units, and configure automatic low-stock replenishment warnings.</p>
+    </div>
+
+    <button (click)="openCreateModal()" class="btn btn-primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      <span>Add Master Ingredient</span>
+    </button>
+  </div>
+
+  <!-- Filter Controls & Category Tabs -->
+  <div class="toolbar-section">
+    <div class="category-tabs">
+      @for (cat of categories; track cat) {
+        <button 
+          (click)="selectedCategory.set(cat)" 
+          [class.active]="selectedCategory() === cat" 
+          class="tab-btn">
+          {{ cat | titlecase }}
+        </button>
+      }
+    </div>
+
+    <div class="search-and-toggles">
+      <div class="search-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input 
+          type="text" 
+          [value]="searchQuery()" 
+          (input)="searchQuery.set($any($event.target).value)" 
+          placeholder="Filter ingredients..." 
+          class="form-control" />
+      </div>
+
+      <button 
+        (click)="filterLowStockOnly.set(!filterLowStockOnly())" 
+        [class.active]="filterLowStockOnly()" 
+        class="filter-toggle">
+        <span class="dot-indicator" [class.rose]="filterLowStockOnly()"></span>
+        <span>Low Stock Only ({{ store.lowStockCount() }})</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Inventory Table -->
+  <div class="card table-card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Ingredient</th>
+          <th>Category</th>
+          <th>Current On-Hand</th>
+          <th>Min Safety Threshold</th>
+          <th>Stock Ratio</th>
+          <th>Quick Restock</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (item of filteredInventory(); track item.id) {
+          <tr [class.warning-row]="item.isLowStock">
+            <!-- Name & Unit -->
+            <td>
+              <div class="ing-cell">
+                <span class="ing-name">{{ item.ingredient?.name }}</span>
+                <span class="unit-badge">{{ item.ingredient?.unit }}</span>
+              </div>
+            </td>
+
+            <!-- Category -->
+            <td>
+              <span class="badge" [class.badge-emerald]="item.ingredient?.category === 'produce'"
+                                  [class.badge-amber]="item.ingredient?.category === 'dairy'"
+                                  [class.badge-purple]="item.ingredient?.category === 'spices'"
+                                  [class.badge-sky]="item.ingredient?.category === 'staples'">
+                {{ item.ingredient?.category }}
+              </span>
+            </td>
+
+            <!-- Current Quantity (Editable) -->
+            <td>
+              <div class="editable-qty">
+                <input 
+                  type="number" 
+                  [value]="item.quantity" 
+                  (change)="onDirectQtyChange(item.ingredient_id, $event)"
+                  class="form-control qty-input" />
+                <span class="unit-text">{{ item.ingredient?.unit }}</span>
+              </div>
+            </td>
+
+            <!-- Min Threshold (Editable) -->
+            <td>
+              <div class="editable-qty">
+                <input 
+                  type="number" 
+                  [value]="item.min_threshold" 
+                  (change)="onDirectThresholdChange(item.ingredient_id, item.quantity, $event)"
+                  class="form-control qty-input" />
+                <span class="unit-text">{{ item.ingredient?.unit }}</span>
+              </div>
+            </td>
+
+            <!-- Stock Level Progress Bar -->
+            <td>
+              <div class="stock-status-cell">
+                <div class="bar-track">
+                  <div 
+                    class="bar-fill" 
+                    [class.low]="item.isLowStock" 
+                    [class.healthy]="!item.isLowStock"
+                    [style.width.%]="item.stockPercentage"></div>
+                </div>
+                <span class="status-label" [class.text-rose]="item.isLowStock">
+                  {{ item.isLowStock ? 'Low Stock' : 'Optimal' }}
+                </span>
+              </div>
+            </td>
+
+            <!-- Quick Delta Actions -->
+            <td>
+              <div class="action-buttons">
+                <button (click)="adjustStock(item.ingredient_id, -50)" class="btn-delta" title="Decrease 50">-50</button>
+                <button (click)="adjustStock(item.ingredient_id, 100)" class="btn-delta" title="Add 100">+100</button>
+                <button (click)="adjustStock(item.ingredient_id, 500)" class="btn-delta highlight" title="Add 500">+500</button>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Add Ingredient Modal -->
+  @if (isModalOpen()) {
+    <div class="modal-backdrop" (click)="closeModal()">
+      <div class="modal-dialog" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Add New Master Ingredient</h3>
+          <button (click)="closeModal()" class="btn btn-ghost btn-sm">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Ingredient Name *</label>
+            <input 
+              type="text" 
+              [value]="newName()" 
+              (input)="newName.set($any($event.target).value)" 
+              placeholder="e.g. Kashmiri Chilli Powder, Butter" 
+              class="form-control" />
+          </div>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Category</label>
+              <select [value]="newCategory()" (change)="newCategory.set($any($event.target).value)" class="form-control">
+                <option value="produce">Produce (Vegetables, Greens)</option>
+                <option value="dairy">Dairy (Milk, Paneer, Curd)</option>
+                <option value="spices">Spices & Condiments</option>
+                <option value="staples">Staples (Rice, Dal, Flour, Oil)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Standard Unit</label>
+              <select [value]="newUnit()" (change)="newUnit.set($any($event.target).value)" class="form-control">
+                <option value="g">Grams (g)</option>
+                <option value="kg">Kilograms (kg)</option>
+                <option value="ml">Milliliters (ml)</option>
+                <option value="pcs">Pieces (pcs)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Initial Stock Quantity</label>
+              <input 
+                type="number" 
+                [value]="newInitialStock()" 
+                (input)="newInitialStock.set(+$any($event.target).value)" 
+                min="0" 
+                class="form-control" />
+            </div>
+
+            <div class="form-group">
+              <label>Low Stock Threshold</label>
+              <input 
+                type="number" 
+                [value]="newMinThreshold()" 
+                (input)="newMinThreshold.set(+$any($event.target).value)" 
+                min="0" 
+                class="form-control" />
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button (click)="closeModal()" class="btn btn-secondary">Cancel</button>
+          <button (click)="saveNewIngredient()" class="btn btn-primary" [disabled]="!newName().trim()">
+            Save Ingredient
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

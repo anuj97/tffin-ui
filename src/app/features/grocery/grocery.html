@@ -1,0 +1,123 @@
+<div class="grocery-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Smart Grocery Shortage List</h1>
+      <p class="page-desc">Automated pantry deficit forecasting: sums ingredients required by upcoming scheduled meals minus current stock.</p>
+    </div>
+
+    @if (shortages().length > 0) {
+      <button (click)="restockAll()" class="btn btn-emerald">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <span>One-Click Restock All Deficits</span>
+      </button>
+    }
+  </div>
+
+  <!-- Horizon Filter Bar -->
+  <div class="horizon-bar">
+    <div class="horizon-controls">
+      <span class="label">Forecast Horizon:</span>
+      <div class="btn-group">
+        <button 
+          (click)="setHorizon(2)" 
+          [class.active]="daysHorizon() === 2" 
+          class="btn-horizon">Next 2 Days</button>
+        <button 
+          (click)="setHorizon(4)" 
+          [class.active]="daysHorizon() === 4" 
+          class="btn-horizon">Next 4 Days</button>
+        <button 
+          (click)="setHorizon(7)" 
+          [class.active]="daysHorizon() === 7" 
+          class="btn-horizon">Full Week (7 Days)</button>
+      </div>
+    </div>
+
+    <div class="summary-pill">
+      <span>{{ shortages().length }} item(s) needed for {{ daysHorizon() }} days</span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  @if (shortages().length === 0) {
+    <div class="card all-stocked-card">
+      <div class="stocked-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+          <polyline points="22 4 12 14.01 9 11.01"></polyline>
+        </svg>
+      </div>
+      <h2>Pantry is Fully Stocked!</h2>
+      <p>All scheduled meals over the next {{ daysHorizon() }} days have sufficient ingredients on hand. No shopping run required!</p>
+    </div>
+  } @else {
+    <div class="card table-card">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th width="40"></th>
+            <th>Item to Buy</th>
+            <th>Category</th>
+            <th>Needed for Meals</th>
+            <th>Current In Pantry</th>
+            <th>Deficit to Purchase</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (item of shortages(); track item.ingredientId) {
+            <tr [class.checked-row]="isChecked(item.ingredientId)">
+              <!-- Checkbox -->
+              <td>
+                <input 
+                  type="checkbox" 
+                  [checked]="isChecked(item.ingredientId)" 
+                  (change)="toggleChecked(item.ingredientId)"
+                  class="custom-checkbox" />
+              </td>
+
+              <!-- Name -->
+              <td>
+                <span class="item-name" [class.line-through]="isChecked(item.ingredientId)">
+                  {{ item.ingredientName }}
+                </span>
+              </td>
+
+              <!-- Category -->
+              <td>
+                <span class="badge badge-muted">{{ item.category }}</span>
+              </td>
+
+              <!-- Required Qty -->
+              <td>
+                <span class="text-secondary">{{ item.requiredQty }} {{ item.unit }}</span>
+              </td>
+
+              <!-- Available Qty -->
+              <td>
+                <span class="text-muted">{{ item.availableQty }} {{ item.unit }}</span>
+              </td>
+
+              <!-- Deficit Qty -->
+              <td>
+                <span class="deficit-badge">
+                  +{{ item.deficit }} {{ item.unit }}
+                </span>
+              </td>
+
+              <!-- Restock Button -->
+              <td>
+                <button (click)="restockItem(item)" class="btn btn-secondary btn-sm" title="Add to pantry stock">
+                  + Restock
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>

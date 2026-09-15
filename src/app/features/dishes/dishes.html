@@ -1,0 +1,179 @@
+<div class="dishes-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Dishes & Recipe Portions</h1>
+      <p class="page-desc">Normalized recipe composition with per-person quantities and dynamic batch portion scaling.</p>
+    </div>
+
+    <button (click)="openCreateModal()" class="btn btn-primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      <span>Create New Dish</span>
+    </button>
+  </div>
+
+  <!-- Filter & Portion Scaler Bar -->
+  <div class="toolbar-bar">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input 
+        type="text" 
+        [value]="searchQuery()" 
+        (input)="searchQuery.set($any($event.target).value)" 
+        placeholder="Search recipes, spices, or cook notes..." 
+        class="form-control search-input" />
+    </div>
+
+    <!-- Scaler Selector -->
+    <div class="scaler-control">
+      <span class="scaler-label">Preview Portions for:</span>
+      <div class="btn-group">
+        <button 
+          (click)="portionMultiplier.set(1)" 
+          [class.active]="portionMultiplier() === 1" 
+          class="btn-multiplier">1 Person</button>
+        <button 
+          (click)="portionMultiplier.set(3)" 
+          [class.active]="portionMultiplier() === 3" 
+          class="btn-multiplier">3 People (Default)</button>
+        <button 
+          (click)="portionMultiplier.set(5)" 
+          [class.active]="portionMultiplier() === 5" 
+          class="btn-multiplier">5 People</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dishes Grid -->
+  <div class="dishes-grid">
+    @for (dish of filteredDishes(); track dish.id) {
+      <div class="card dish-card">
+        <div class="dish-card-header">
+          <div>
+            <h3 class="dish-title">{{ dish.name }}</h3>
+            <span class="recipe-count">{{ dish.recipe_ingredients?.length || 0 }} mapped ingredients</span>
+          </div>
+
+          <button (click)="deleteDish(dish.id)" class="btn btn-ghost btn-sm btn-icon" title="Delete Dish">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        </div>
+
+        @if (dish.cook_notes) {
+          <div class="cook-notes-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <p>{{ dish.cook_notes }}</p>
+          </div>
+        }
+
+        <!-- Recipe Ingredients List Scaled -->
+        <div class="ingredients-list">
+          <div class="list-title">
+            <span>Ingredients for {{ portionMultiplier() }} portion(s)</span>
+          </div>
+          @for (ri of dish.recipe_ingredients; track ri.ingredient_id) {
+            <div class="ingredient-row">
+              <span class="ing-name">{{ getIngredientName(ri.ingredient_id) }}</span>
+              <span class="ing-qty">
+                {{ ri.qty_per_person * portionMultiplier() }} {{ getIngredientUnit(ri.ingredient_id) }}
+                @if (portionMultiplier() > 1) {
+                  <small class="base-note">({{ ri.qty_per_person }}{{ getIngredientUnit(ri.ingredient_id) }}/pers)</small>
+                }
+              </span>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- Create Dish Modal -->
+  @if (isCreateModalOpen()) {
+    <div class="modal-backdrop" (click)="closeCreateModal()">
+      <div class="modal-dialog modal-lg" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Create New Recipe / Dish</h3>
+          <button (click)="closeCreateModal()" class="btn btn-ghost btn-sm">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Dish Name *</label>
+            <input 
+              type="text" 
+              [value]="newDishName()" 
+              (input)="newDishName.set($any($event.target).value)" 
+              placeholder="e.g. Palak Paneer, Rajma Masala" 
+              class="form-control" />
+          </div>
+
+          <div class="form-group">
+            <label>Cooking Notes & Preparation Instructions</label>
+            <textarea 
+              rows="3" 
+              [value]="newCookNotes()" 
+              (input)="newCookNotes.set($any($event.target).value)" 
+              placeholder="Special instructions, marination details, or boiling steps..." 
+              class="form-control"></textarea>
+          </div>
+
+          <div class="recipe-builder-section">
+            <div class="builder-header">
+              <label>Recipe Ingredients (Base quantity per person)</label>
+              <button (click)="addIngredientRow()" class="btn btn-secondary btn-sm">+ Add Ingredient</button>
+            </div>
+
+            <div class="builder-rows">
+              @for (row of newIngredients(); track $index; let idx = $index) {
+                <div class="builder-row">
+                  <select 
+                    [value]="row.ingredient_id" 
+                    (change)="row.ingredient_id = $any($event.target).value" 
+                    class="form-control ing-select">
+                    @for (ing of masterIngredients(); track ing.id) {
+                      <option [value]="ing.id">{{ ing.name }} ({{ ing.category }})</option>
+                    }
+                  </select>
+
+                  <div class="qty-input-wrap">
+                    <input 
+                      type="number" 
+                      [value]="row.qty_per_person" 
+                      (input)="row.qty_per_person = +$any($event.target).value" 
+                      min="0.1" 
+                      step="any" 
+                      class="form-control" />
+                    <span class="unit-tag">{{ getIngredientUnit(row.ingredient_id) }}/pers</span>
+                  </div>
+
+                  <button (click)="removeIngredientRow(idx)" class="btn btn-ghost btn-sm text-rose" title="Remove">
+                    &times;
+                  </button>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button (click)="closeCreateModal()" class="btn btn-secondary">Cancel</button>
+          <button (click)="saveDish()" class="btn btn-primary" [disabled]="!newDishName().trim()">
+            Save Dish & Recipe
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

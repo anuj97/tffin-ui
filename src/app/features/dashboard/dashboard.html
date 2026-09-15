@@ -1,0 +1,273 @@
+<div class="dashboard-page">
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="header-left">
+      <div class="date-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="16" y1="2" x2="16" y2="6"></line>
+          <line x1="8" y1="2" x2="8" y2="6"></line>
+          <line x1="3" y1="10" x2="21" y2="10"></line>
+        </svg>
+        <span>{{ formattedToday() }}</span>
+      </div>
+      <h1 class="page-title">Today's Kitchen Command</h1>
+      <p class="page-desc">Daily meal orchestration, live headcount scaling, and real-time inventory checks.</p>
+    </div>
+
+    <div class="header-actions">
+      <a routerLink="/planner" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="16" y1="2" x2="16" y2="6"></line>
+          <line x1="8" y1="2" x2="8" y2="6"></line>
+          <line x1="3" y1="10" x2="21" y2="10"></line>
+        </svg>
+        <span>Weekly Calendar</span>
+      </a>
+      <a routerLink="/grocery" class="btn btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <path d="M16 10a4 4 0 0 1-8 0"></path>
+        </svg>
+        <span>Grocery Deficit</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- KPI Stat Metrics Grid -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon amber">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+      </div>
+      <div class="stat-content">
+        <span class="stat-label">Total Expected Portions</span>
+        <div class="stat-value">{{ todayTotalHeadcount() }} <span class="stat-unit">people</span></div>
+        <span class="stat-sub">Across 3 meals scheduled today</span>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon emerald">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 8h1a4 4 0 0 1 0 8h-1"></path>
+          <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path>
+        </svg>
+      </div>
+      <div class="stat-content">
+        <span class="stat-label">Recipe Catalog</span>
+        <div class="stat-value">{{ dishes().length }} <span class="stat-unit">dishes</span></div>
+        <span class="stat-sub">With portion ingredients mapped</span>
+      </div>
+    </div>
+
+    <div class="stat-card" [class.highlight-alert]="store.lowStockCount() > 0">
+      <div class="stat-icon" [class.rose]="store.lowStockCount() > 0" [class.sky]="store.lowStockCount() === 0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+      </div>
+      <div class="stat-content">
+        <span class="stat-label">Low Stock Alerts</span>
+        <div class="stat-value" [class.text-rose]="store.lowStockCount() > 0">
+          {{ store.lowStockCount() }} <span class="stat-unit">items</span>
+        </div>
+        <span class="stat-sub">Below safety threshold</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content Layout -->
+  <div class="main-layout">
+    <!-- Left: Today's 3 Meals Schedule Cards -->
+    <div class="meals-section">
+      <div class="section-header">
+        <h2 class="section-title">Today's Meal Board</h2>
+        <span class="badge badge-amber">Active Schedule</span>
+      </div>
+
+      <div class="meal-cards-list">
+        @for (item of todayMeals(); track item.mealType) {
+          <div class="card meal-card" [class.empty-slot]="!item.dish">
+            <div class="meal-card-top">
+              <div class="meal-meta">
+                <span class="badge" [ngClass]="getMealBadgeClass(item.mealType)">{{ item.mealType }}</span>
+                @if (item.schedule) {
+                  <div class="headcount-control">
+                    <button (click)="decrementHeadcount(item.mealType)" class="btn-step" title="Decrease headcount (Stored Proc)">-</button>
+                    <span class="count-display">{{ item.schedule.headcount }}</span>
+                    <button (click)="incrementHeadcount(item.mealType)" class="btn-step" title="Increase headcount (Stored Proc)">+</button>
+                    <span class="count-unit">pers.</span>
+                  </div>
+                }
+              </div>
+
+              <div class="meal-actions">
+                <button 
+                  (click)="openAssignModal(item.mealType, item.dish?.id, item.schedule?.headcount)"
+                  class="btn btn-ghost btn-sm">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <path d="M12 20h9"></path>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                  </svg>
+                  <span>{{ item.dish ? 'Change Dish' : 'Assign Dish' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Dish Details -->
+            @if (item.dish) {
+              <div class="dish-info">
+                <h3 class="dish-name">{{ item.dish.name }}</h3>
+                @if (item.dish.cook_notes) {
+                  <p class="cook-notes">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                      <polyline points="14 2 14 8 20 8"></polyline>
+                      <line x1="16" y1="13" x2="8" y2="13"></line>
+                      <line x1="16" y1="17" x2="8" y2="17"></line>
+                      <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <span>{{ item.dish.cook_notes }}</span>
+                  </p>
+                }
+              </div>
+
+              <!-- Stock Feasibility Status -->
+              <div class="stock-check">
+                @if (item.stockStatus?.isFullyStocked) {
+                  <div class="stock-badge ready">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                      <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                    </svg>
+                    <span>Pantry Stock Ready (Ingredients sufficient for {{ item.schedule?.headcount }} people)</span>
+                  </div>
+                } @else {
+                  <div class="stock-badge warning">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="12" y1="8" x2="12" y2="12"></line>
+                      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <span>Stock Warning: Missing 
+                      @for (m of item.stockStatus?.missingItems; track m.ingredientName; let last = $last) {
+                        <strong>{{ m.deficit }}{{ m.unit }} {{ m.ingredientName }}</strong>{{ !last ? ', ' : '' }}
+                      }
+                    </span>
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="empty-placeholder">
+                <p>No dish planned for {{ item.mealType }} yet.</p>
+                <button 
+                  (click)="openAssignModal(item.mealType)"
+                  class="btn btn-secondary btn-sm">
+                  + Select Dish
+                </button>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- Right: Low Stock & Restock Widget -->
+    <div class="sidebar-section">
+      <div class="card alerts-card">
+        <div class="card-header">
+          <div class="title-with-count">
+            <h3 class="widget-title">Pantry Threshold Watch</h3>
+            <span class="badge badge-rose">{{ lowStockItems().length }} Low</span>
+          </div>
+          <a routerLink="/inventory" class="text-link">View All</a>
+        </div>
+
+        @if (lowStockItems().length === 0) {
+          <div class="all-good-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" width="32" height="32">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <p>All ingredient stocks are currently above minimum safety thresholds!</p>
+          </div>
+        } @else {
+          <div class="alerts-list">
+            @for (item of lowStockItems(); track item.id) {
+              <div class="alert-item">
+                <div class="item-info">
+                  <span class="item-name">{{ item.ingredient?.name }}</span>
+                  <span class="item-meta">{{ item.quantity }} / {{ item.min_threshold }} {{ item.ingredient?.unit }}</span>
+                </div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar" [style.width.%]="item.stockPercentage"></div>
+                </div>
+                <div class="item-actions">
+                  <button (click)="quickRestock(item.ingredient_id, 200)" class="btn-quick-add" title="Quick restock +200">
+                    +200{{ item.ingredient?.unit }}
+                  </button>
+                  <button (click)="quickRestock(item.ingredient_id, 500)" class="btn-quick-add" title="Quick restock +500">
+                    +500{{ item.ingredient?.unit }}
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <!-- Helper Stored Procedure Callout Card -->
+      <div class="card rpc-card">
+        <div class="rpc-badge">PostgreSQL Stored Procedure</div>
+        <h4>update_meal_headcount()</h4>
+        <p>Dynamic bot/admin headcount updates with instant optimistic UI & atomic database adjustments.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dish Assignment Modal -->
+  @if (isAssignModalOpen()) {
+    <div class="modal-backdrop" (click)="closeAssignModal()">
+      <div class="modal-dialog" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h3>Assign Dish for {{ selectedMealType() | titlecase }}</h3>
+          <button (click)="closeAssignModal()" class="btn btn-ghost btn-sm">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Select Dish from Catalog</label>
+            <select [value]="selectedDishId()" (change)="selectedDishId.set($any($event.target).value)" class="form-control">
+              @for (dish of dishes(); track dish.id) {
+                <option [value]="dish.id">{{ dish.name }}</option>
+              }
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Planned Headcount (Portions)</label>
+            <input 
+              type="number" 
+              [value]="modalHeadcount()" 
+              (input)="modalHeadcount.set(+$any($event.target).value)" 
+              min="1" 
+              class="form-control" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button (click)="closeAssignModal()" class="btn btn-secondary">Cancel</button>
+          <button (click)="saveAssignment()" class="btn btn-primary">Save to Schedule</button>
+        </div>
+      </div>
+    </div>
+  }
+</div>
