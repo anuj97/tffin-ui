@@ -1,6 +1,8 @@
-<div class="app-layout">
-  <app-navbar></app-navbar>
-  <main class="app-content">
+<div class="app-layout" [class.unauthenticated]="!auth.isAuthenticated()">
+  @if (auth.isAuthenticated()) {
+    <app-navbar></app-navbar>
+  }
+  <main class="app-content" [class.full-bleed]="!auth.isAuthenticated()">
     <router-outlet></router-outlet>
   </main>
 </div>

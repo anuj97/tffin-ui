@@ -6,6 +6,8 @@ import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
 import { MealSchedule, MealType } from '../models/meal-schedule.model';
 
+import { AppUser } from '../models/user.model';
+
 export interface SupabaseConfig {
   url: string;
   key: string;
@@ -76,6 +78,34 @@ export class SupabaseService {
 
   public get hasClient(): boolean {
     return !!this.client;
+  }
+
+  // Authentication Verification
+  public async verifyUserCredentials(username: string, password: string): Promise<AppUser | null> {
+    if (!this.client) {
+      throw new Error('Supabase client is not configured. Please check environment variables.');
+    }
+
+    const { data, error } = await this.client.rpc('verify_app_user', {
+      p_username: username.trim(),
+      p_password: password
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    const row = data[0];
+    return {
+      id: row.id,
+      username: row.username,
+      fullName: row.full_name || 'Kitchen Admin',
+      role: row.role || 'admin'
+    };
   }
 
   // Database Access Methods

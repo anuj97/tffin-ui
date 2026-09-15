@@ -121,6 +121,84 @@
   gap: 1rem;
 }
 
+.user-profile-section {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-left: 1rem;
+}
+
+.user-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 0.25rem 0.75rem 0.25rem 0.35rem;
+
+  .user-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), #b45309);
+    color: #0b0f19;
+    font-size: 0.7rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .user-info {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+
+    .user-name {
+      font-size: 0.775rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .user-role {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: capitalize;
+    }
+  }
+}
+
+.btn-logout {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  svg {
+    stroke: var(--text-muted);
+    transition: stroke 0.15s;
+  }
+
+  &:hover {
+    background: var(--rose-subtle);
+    border-color: rgba(244, 63, 94, 0.4);
+    color: var(--rose);
+
+    svg {
+      stroke: var(--rose);
+    }
+  }
+}
+
 .mode-pill {
   display: flex;
   align-items: center;

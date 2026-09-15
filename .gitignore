@@ -43,6 +43,10 @@ testem.log
 .env.*.local
 !.env.example
 
+# Database & local secrets
+schema.sql
+*.sql
+
 # System files
 .DS_Store
 Thumbs.db

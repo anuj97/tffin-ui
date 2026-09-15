@@ -71,6 +71,30 @@
         <span>Grocery Shortages</span>
       </a>
     </nav>
+
+    <!-- User Profile & Logout -->
+    @if (currentUser(); as user) {
+      <div class="user-profile-section">
+        <div class="user-badge" title="Role: {{ user.role }}">
+          <div class="user-avatar">
+            <span>{{ user.username.charAt(0).toUpperCase() }}</span>
+          </div>
+          <div class="user-info">
+            <span class="user-name">{{ user.fullName || user.username }}</span>
+            <span class="user-role">{{ user.role }}</span>
+          </div>
+        </div>
+
+        <button (click)="onLogout()" class="btn-logout" title="Sign out of kitchen admin">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
+          <span>Sign Out</span>
+        </button>
+      </div>
+    }
   </div>
 
   <!-- Global Toast Notification Banner -->

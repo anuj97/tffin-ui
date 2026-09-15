@@ -1,0 +1,139 @@
+<div class="login-wrapper">
+  <!-- Glowing Background Accents -->
+  <div class="glow-orb orb-primary"></div>
+  <div class="glow-orb orb-secondary"></div>
+
+  <div class="login-container">
+    <!-- Brand Header -->
+    <div class="brand-header">
+      <div class="logo-icon-large">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2a8 8 0 0 0-8 8v12h16V10a8 8 0 0 0-8-8z"></path>
+          <path d="M4 14h16"></path>
+          <path d="M12 2v4"></path>
+        </svg>
+      </div>
+      <h1 class="brand-title">TIFFIN</h1>
+      <span class="brand-subtitle">Kitchen & Meal Schedule Admin</span>
+    </div>
+
+    <!-- Login Card -->
+    <div class="card login-card">
+      <div class="card-intro">
+        <h2>Sign In</h2>
+        <p>Enter your credentials to access the kitchen command dashboard.</p>
+      </div>
+
+      <!-- Error Feedback -->
+      @if (errorMessage(); as err) {
+        <div class="auth-error-banner">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>{{ err }}</span>
+        </div>
+      }
+
+      <form (submit)="onSubmit($event)" class="login-form">
+        <!-- Username Input -->
+        <div class="form-group">
+          <label for="username">Username or Email</label>
+          <div class="input-with-icon">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <input 
+              id="username"
+              type="text" 
+              [value]="username()" 
+              (input)="username.set($any($event.target).value)" 
+              placeholder="e.g. admin"
+              autocomplete="username"
+              required 
+              class="form-control" />
+          </div>
+        </div>
+
+        <!-- Password Input -->
+        <div class="form-group">
+          <label for="password">Password</label>
+          <div class="input-with-icon">
+            <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <input 
+              id="password"
+              [type]="showPassword() ? 'text' : 'password'" 
+              [value]="password()" 
+              (input)="password.set($any($event.target).value)" 
+              placeholder="••••••••"
+              autocomplete="current-password"
+              required 
+              class="form-control password-input" />
+            <button 
+              type="button" 
+              (click)="togglePasswordVisibility()" 
+              class="btn-toggle-pw" 
+              [title]="showPassword() ? 'Hide password' : 'Show password'">
+              @if (showPassword()) {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              } @else {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              }
+            </button>
+          </div>
+        </div>
+
+        <!-- Options: Remember Me -->
+        <div class="form-options">
+          <label class="checkbox-label">
+            <input 
+              type="checkbox" 
+              [checked]="rememberMe()" 
+              (change)="rememberMe.set(!rememberMe())" />
+            <span>Remember this device</span>
+          </label>
+        </div>
+
+        <!-- Submit Button -->
+        <button 
+          type="submit" 
+          [disabled]="auth.isAuthenticating()" 
+          class="btn btn-primary btn-submit">
+          @if (auth.isAuthenticating()) {
+            <span class="spinner"></span>
+            <span>Verifying Credentials...</span>
+          } @else {
+            <span>Sign In to Dashboard</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="12 5 19 12 12 19"></polyline>
+            </svg>
+          }
+        </button>
+      </form>
+
+      <!-- Default Credentials Helper Card -->
+      <div class="credentials-hint">
+        <div class="hint-header">
+          <span class="hint-dot"></span>
+          <span>Default seeded admin account</span>
+        </div>
+        <div class="hint-credentials">
+          <code>admin</code> / <code>admin123</code>
+          <button (click)="fillDefaultCredentials()" type="button" class="btn-micro-hint">Quick Fill</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
