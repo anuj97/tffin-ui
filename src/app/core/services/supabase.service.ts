@@ -8,7 +8,7 @@ import { MealSchedule, MealType } from '../models/meal-schedule.model';
 
 export interface SupabaseConfig {
   url: string;
-  anonKey: string;
+  key: string;
 }
 
 @Injectable({
@@ -19,7 +19,7 @@ export class SupabaseService {
 
   public config = signal<SupabaseConfig>({
     url: (environment.supabaseUrl || '').trim(),
-    anonKey: (environment.supabaseAnonKey || '').trim()
+    key: ((environment as any).supabaseKey || environment.supabaseAnonKey || '').trim()
   });
   public isConnected = signal<boolean>(false);
   public connectionError = signal<string | null>(null);
@@ -30,9 +30,14 @@ export class SupabaseService {
 
   private initializeClient(): void {
     const current = this.config();
-    if (current.url && current.anonKey) {
+    if (current.url && current.key) {
       try {
-        this.client = createClient(current.url, current.anonKey);
+        this.client = createClient(current.url, current.key, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false
+          }
+        });
         this.testConnection();
       } catch (err: any) {
         this.isConnected.set(false);
@@ -42,7 +47,7 @@ export class SupabaseService {
       this.client = null;
       this.isConnected.set(false);
       this.connectionError.set(
-        'Supabase environment variables (SUPABASE_URL, SUPABASE_ANON_KEY) are not configured.'
+        'Supabase environment variables (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY) are not configured.'
       );
     }
   }

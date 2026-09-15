@@ -245,7 +245,7 @@ export class MealStoreService {
   // State Mutations with Optimistic Updates
   public async adjustHeadcount(scheduleDate: string, mealType: MealType, delta: number): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
       return;
     }
 
@@ -280,7 +280,7 @@ export class MealStoreService {
     headcount: number = 3
   ): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
       return;
     }
 
@@ -306,7 +306,7 @@ export class MealStoreService {
 
   public async updateInventoryQuantity(ingredientId: string, newQuantity: number, minThreshold?: number): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
       return;
     }
 
@@ -350,7 +350,7 @@ export class MealStoreService {
     minThreshold: number = 0
   ): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
       return;
     }
 
@@ -383,7 +383,7 @@ export class MealStoreService {
     recipeIngredients: { ingredient_id: string; qty_per_person: number }[]
   ): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
       return;
     }
 
@@ -399,7 +399,7 @@ export class MealStoreService {
 
   public async deleteDish(dishId: string): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_ANON_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
       return;
     }
 
