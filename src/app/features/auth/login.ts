@@ -16,8 +16,8 @@ export class LoginComponent {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
 
-  public username = signal<string>('admin');
-  public password = signal<string>('admin123');
+  public username = signal<string>('');
+  public password = signal<string>('');
   public rememberMe = signal<boolean>(true);
   public showPassword = signal<boolean>(false);
   public errorMessage = signal<string | null>(null);
@@ -53,11 +53,5 @@ export class LoginComponent {
 
   public togglePasswordVisibility(): void {
     this.showPassword.set(!this.showPassword());
-  }
-
-  public fillDefaultCredentials(): void {
-    this.username.set('admin');
-    this.password.set('admin123');
-    this.errorMessage.set(null);
   }
 }

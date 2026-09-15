@@ -50,7 +50,7 @@
               type="text" 
               [value]="username()" 
               (input)="username.set($any($event.target).value)" 
-              placeholder="e.g. admin"
+              placeholder="Enter username"
               autocomplete="username"
               required 
               class="form-control" />
@@ -70,7 +70,7 @@
               [type]="showPassword() ? 'text' : 'password'" 
               [value]="password()" 
               (input)="password.set($any($event.target).value)" 
-              placeholder="••••••••"
+              placeholder="Enter password"
               autocomplete="current-password"
               required 
               class="form-control password-input" />
@@ -123,17 +123,6 @@
         </button>
       </form>
 
-      <!-- Default Credentials Helper Card -->
-      <div class="credentials-hint">
-        <div class="hint-header">
-          <span class="hint-dot"></span>
-          <span>Default seeded admin account</span>
-        </div>
-        <div class="hint-credentials">
-          <code>admin</code> / <code>admin123</code>
-          <button (click)="fillDefaultCredentials()" type="button" class="btn-micro-hint">Quick Fill</button>
-        </div>
-      </div>
     </div>
   </div>
 </div>
