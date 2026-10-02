@@ -152,6 +152,7 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       currentUserSignal.set({
         id: 'user-verma',
         username: 'amit_verma',
+        fullName: 'Amit Verma',
         role: 'household_member',
         household_id: 'mock-hh-02',
         household_ids: ['mock-hh-02']
@@ -189,6 +190,7 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       currentUserSignal.set({
         id: 'user-verma',
         username: 'amit_verma',
+        fullName: 'Amit Verma',
         role: 'household_member',
         household_ids: ['mock-hh-02']
       });
@@ -263,6 +265,7 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       currentUserSignal.set({
         id: 'user-verma',
         username: 'amit_verma',
+        fullName: 'Amit Verma',
         role: 'household_member',
         household_ids: ['mock-hh-02']
       });
@@ -290,6 +293,7 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       currentUserSignal.set({
         id: 'user-verma',
         username: 'amit_verma',
+        fullName: 'Amit Verma',
         role: 'household_member',
         household_ids: ['mock-hh-02']
       });
@@ -312,6 +316,7 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       currentUserSignal.set({
         id: 'user-multi',
         username: 'kiran_manager',
+        fullName: 'Kiran Manager',
         role: 'household_member',
         household_ids: ['mock-hh-02', 'mock-hh-03']
       });
@@ -331,7 +336,8 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
         code: 'TEMP-01',
         default_headcount: 2
       });
-      const hhId = created.id;
+      expect(created).toBeTruthy();
+      const hhId = created!.id;
 
       // Add a schedule for it
       service.schedules.update(list => [
@@ -359,6 +365,7 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       currentUserSignal.set({
         id: 'user-regular',
         username: 'regular_member',
+        fullName: 'Regular Member',
         role: 'household_member',
         household_ids: ['mock-hh-02']
       });
@@ -384,8 +391,9 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       currentUserSignal.set({
         id: 'user-unassigned',
         username: 'unassigned_user',
+        fullName: 'Unassigned User',
         role: 'household_member',
-        household_ids: []
+        household_ids: [] as string[]
       });
 
       expect(service.authorizedHouseholds().length).toBe(0);
