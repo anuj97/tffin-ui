@@ -39,7 +39,12 @@
 
     <!-- Household Switcher & Actions -->
     <div class="household-switcher-section">
-      @if (isSingleHouseholdUser()) {
+      @if (authorizedHouseholds().length === 0) {
+        <a routerLink="/households" class="empty-hh-badge" title="You are not part of any household. Click to create or join one.">
+          <span class="empty-hh-icon">🏠</span>
+          <span>+ Create Household</span>
+        </a>
+      } @else if (isSingleHouseholdUser()) {
         @if (singleHousehold(); as hh) {
           <div class="single-household-badge" [style.border-color]="hh.color_tag || '#6366f1'" title="Active Household: {{ hh.name }}">
             <span class="single-hh-dot" [style.background-color]="hh.color_tag || '#6366f1'"></span>
@@ -64,8 +69,8 @@
         </div>
       }
 
-      @if (canManageHouseholds()) {
-        <a routerLink="/households" class="btn-manage-hh" title="Manage households and invite members">
+      @if (canManageHouseholds() || authorizedHouseholds().length === 0) {
+        <a routerLink="/households" class="btn-manage-hh" title="Manage households or create one">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
             <circle cx="9" cy="7" r="4"></circle>
@@ -285,7 +290,14 @@
     <!-- Active Household Context in Drawer -->
     <div class="drawer-household-context">
       <span class="context-label">Active Household</span>
-      @if (isSingleHouseholdUser()) {
+      @if (authorizedHouseholds().length === 0) {
+        <div class="drawer-no-hh-box">
+          <p class="drawer-no-hh-text">No household assigned yet</p>
+          <a routerLink="/households" (click)="closeSidebar()" class="btn btn-primary btn-sm btn-block">
+            + Create Household
+          </a>
+        </div>
+      } @else if (isSingleHouseholdUser()) {
         @if (singleHousehold(); as hh) {
           <div class="drawer-hh-badge" [style.border-left-color]="hh.color_tag || '#6366f1'">
             <span class="hh-code-tag" [style.background-color]="hh.color_tag || '#6366f1'">{{ hh.code || 'HH' }}</span>

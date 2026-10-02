@@ -412,9 +412,12 @@ export class MealStoreService {
   }
 
   public async createHousehold(household: Partial<Household>): Promise<Household | null> {
-    const role = this.auth.currentUser()?.role;
-    if (role && !['admin', 'owner'].includes(role)) {
-      this.showNotification('Only kitchen administrators can create households.', 'error');
+    const user = this.auth.currentUser();
+    const role = user?.role;
+    const isUnassignedUser = this.authorizedHouseholds().length === 0 || (!user?.household_ids || user.household_ids.length === 0);
+
+    if (role && !['admin', 'owner'].includes(role) && !isUnassignedUser) {
+      this.showNotification('Only kitchen administrators or unassigned members can create households.', 'error');
       return null;
     }
 
@@ -423,7 +426,7 @@ export class MealStoreService {
         id: 'hh-' + Date.now(),
         name: household.name || 'New Household',
         code: household.code || `HH-${this.households().length + 1}`,
-        contact_name: household.contact_name || '',
+        contact_name: household.contact_name || user?.fullName || '',
         contact_phone: household.contact_phone || '',
         address: household.address || '',
         default_headcount: household.default_headcount || 2,
@@ -433,14 +436,67 @@ export class MealStoreService {
         created_at: new Date().toISOString()
       };
       this.households.set([...this.households(), newHh]);
-      this.showNotification(`Created household: ${newHh.name}`, 'success');
+
+      // If created by a member (or unassigned user), grant ownership and assign household
+      if (user) {
+        const isStaff = ['admin', 'chef'].includes(user.role);
+        if (!isStaff || isUnassignedUser) {
+          const newMember: HouseholdMember = {
+            id: 'hm-' + Date.now(),
+            household_id: newHh.id,
+            user_id: user.id,
+            role_in_household: 'owner',
+            username: user.username,
+            fullName: user.fullName || user.username
+          };
+          this.householdMembers.update(members => [...members, newMember]);
+
+          const currentIds = user.household_ids || [];
+          const updatedUser = {
+            ...user,
+            household_id: newHh.id,
+            household_ids: [...currentIds, newHh.id]
+          };
+          this.auth.currentUser.set(updatedUser);
+          localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
+        }
+      }
+
+      this.selectedHouseholdId.set(newHh.id);
+      this.showNotification(`Created household: ${newHh.name}! You are now the household owner.`, 'success');
       return newHh;
     }
 
     try {
       const created = await this.supabase.createHousehold(household);
       this.households.set([...this.households(), created]);
-      this.showNotification(`Created household: ${created.name}`, 'success');
+
+      if (user) {
+        const isStaff = ['admin', 'chef'].includes(user.role);
+        if (!isStaff || isUnassignedUser) {
+          try {
+            await this.supabase.clientInstance?.from('household_members').insert({
+              household_id: created.id,
+              user_id: user.id,
+              role_in_household: 'owner'
+            });
+          } catch (memErr) {
+            console.warn('Could not insert household_member record:', memErr);
+          }
+
+          const currentIds = user.household_ids || [];
+          const updatedUser = {
+            ...user,
+            household_id: created.id,
+            household_ids: [...currentIds, created.id]
+          };
+          this.auth.currentUser.set(updatedUser);
+          localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
+        }
+      }
+
+      this.selectedHouseholdId.set(created.id);
+      this.showNotification(`Created household: ${created.name}! You are now the household owner.`, 'success');
       return created;
     } catch (err: any) {
       this.showNotification(`Failed to create household: ${err.message}`, 'error');

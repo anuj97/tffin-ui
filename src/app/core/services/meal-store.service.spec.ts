@@ -379,5 +379,36 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       expect(service.households().some(h => h.id === 'mock-hh-02')).toBeTrue();
       expect(service.notification()?.type).toBe('error');
     });
+
+    it('should allow a user who is not a part of any household to create a household and become its owner', async () => {
+      currentUserSignal.set({
+        id: 'user-unassigned',
+        username: 'unassigned_user',
+        role: 'household_member',
+        household_ids: []
+      });
+
+      expect(service.authorizedHouseholds().length).toBe(0);
+
+      const created = await service.createHousehold({
+        name: 'New Family Residence',
+        code: 'NEW-01',
+        default_headcount: 3
+      });
+
+      expect(created).toBeTruthy();
+      expect(service.households().some(h => h.id === created!.id)).toBeTrue();
+
+      // Creator must be added as owner
+      const member = service.householdMembers().find(
+        m => m.household_id === created!.id && m.user_id === 'user-unassigned'
+      );
+      expect(member).toBeTruthy();
+      expect(member?.role_in_household).toBe('owner');
+
+      // User's authorized households now includes the new household
+      expect(service.authorizedHouseholds().some(h => h.id === created!.id)).toBeTrue();
+      expect(service.selectedHouseholdId()).toBe(created!.id);
+    });
   });
 });

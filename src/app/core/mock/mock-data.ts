@@ -42,6 +42,13 @@ export const MOCK_USERS: Record<string, AppUser> = {
     fullName: 'Kiran (Verma + Apt 301)',
     role: 'household_member',
     household_ids: ['mock-hh-02', 'mock-hh-03'] // Both households
+  },
+  new_user: {
+    id: 'user-new',
+    username: 'rohan_new',
+    fullName: 'Rohan (No Household)',
+    role: 'household_member',
+    household_ids: [] // Not assigned to any household yet
   }
 };
 

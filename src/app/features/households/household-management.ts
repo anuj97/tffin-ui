@@ -48,6 +48,10 @@ export class HouseholdManagementComponent implements OnInit {
     return this.currentInvitations().filter(i => i.status === 'pending');
   });
 
+  public hasNoHouseholds = computed<boolean>(() => {
+    return this.activeHouseholds().length === 0;
+  });
+
   // Permission Check
   public canManage = computed<boolean>(() => {
     const u = this.currentUser();
@@ -73,6 +77,18 @@ export class HouseholdManagementComponent implements OnInit {
   public joinCodeInput = signal<string>('');
   public isJoining = signal<boolean>(false);
   public joinError = signal<string | null>(null);
+
+  // Create Household Modal State
+  public isCreateModalOpen = signal<boolean>(false);
+  public createName = signal<string>('');
+  public createCode = signal<string>('');
+  public createContactName = signal<string>('');
+  public createContactPhone = signal<string>('');
+  public createAddress = signal<string>('');
+  public createHeadcount = signal<number>(2);
+  public createDietaryNotes = signal<string>('');
+  public createColorTag = signal<string>('#6366f1');
+  public isCreatingHousehold = signal<boolean>(false);
 
   // Edit Household Modal State
   public isEditModalOpen = signal<boolean>(false);
@@ -253,6 +269,51 @@ export class HouseholdManagementComponent implements OnInit {
     });
 
     this.closeEditModal();
+  }
+
+  // Create Household
+  public openCreateModal(): void {
+    const user = this.currentUser();
+    this.createName.set('');
+    this.createCode.set('');
+    this.createContactName.set(user?.fullName || '');
+    this.createContactPhone.set('');
+    this.createAddress.set('');
+    this.createHeadcount.set(2);
+    this.createDietaryNotes.set('');
+    this.createColorTag.set('#6366f1');
+    this.isCreateModalOpen.set(true);
+  }
+
+  public closeCreateModal(): void {
+    this.isCreateModalOpen.set(false);
+  }
+
+  public async submitCreateHousehold(): Promise<void> {
+    const name = this.createName().trim();
+    if (!name) return;
+
+    this.isCreatingHousehold.set(true);
+    try {
+      const created = await this.store.createHousehold({
+        name,
+        code: this.createCode().trim() || undefined,
+        contact_name: this.createContactName().trim() || undefined,
+        contact_phone: this.createContactPhone().trim() || undefined,
+        address: this.createAddress().trim() || undefined,
+        default_headcount: Number(this.createHeadcount()) || 2,
+        dietary_notes: this.createDietaryNotes().trim() || undefined,
+        color_tag: this.createColorTag() || '#6366f1',
+        is_active: true
+      });
+
+      if (created) {
+        this.closeCreateModal();
+        this.selectHousehold(created.id);
+      }
+    } finally {
+      this.isCreatingHousehold.set(false);
+    }
   }
 
   // Delete Household

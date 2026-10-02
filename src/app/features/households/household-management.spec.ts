@@ -79,6 +79,11 @@ describe('HouseholdManagementComponent', () => {
     }),
     setSelectedHousehold: jasmine.createSpy('setSelectedHousehold'),
     updateHousehold: jasmine.createSpy('updateHousehold'),
+    createHousehold: jasmine.createSpy('createHousehold').and.resolveTo({
+      id: 'mock-created-01',
+      name: 'New Household',
+      default_headcount: 3
+    }),
     deleteHousehold: jasmine.createSpy('deleteHousehold').and.resolveTo(true),
     showNotification: jasmine.createSpy('showNotification')
   };
@@ -154,5 +159,30 @@ describe('HouseholdManagementComponent', () => {
 
     expect(mockStore.deleteHousehold).toHaveBeenCalledWith('mock-hh-02');
     expect(component.isDeleteModalOpen()).toBeFalse();
+  });
+
+  it('should open and close the create household modal', () => {
+    expect(component.isCreateModalOpen()).toBeFalse();
+    component.openCreateModal();
+    expect(component.isCreateModalOpen()).toBeTrue();
+    expect(component.createHeadcount()).toBe(2);
+
+    component.closeCreateModal();
+    expect(component.isCreateModalOpen()).toBeFalse();
+  });
+
+  it('should submit create household and select the new household', async () => {
+    component.openCreateModal();
+    component.createName.set('New Household');
+    component.createHeadcount.set(3);
+
+    await component.submitCreateHousehold();
+
+    expect(mockStore.createHousehold).toHaveBeenCalledWith(jasmine.objectContaining({
+      name: 'New Household',
+      default_headcount: 3
+    }));
+    expect(component.isCreateModalOpen()).toBeFalse();
+    expect(component.selectedHouseholdId()).toBe('mock-created-01');
   });
 });

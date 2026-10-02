@@ -12,6 +12,16 @@
     </div>
 
     <div class="header-actions">
+      @if (hasNoHouseholds() || canManage()) {
+        <button (click)="openCreateModal()" class="btn btn-primary btn-glow" title="Create a new household">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Create Household</span>
+        </button>
+      }
+
       <button (click)="openJoinModal()" class="btn btn-secondary" title="Join a household using an invite code">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
           <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
@@ -21,8 +31,8 @@
         <span>Join with Code</span>
       </button>
 
-      @if (canManage()) {
-        <button (click)="openInviteModal()" class="btn btn-primary btn-glow" title="Invite a new member to this household">
+      @if (canManage() && !hasNoHouseholds()) {
+        <button (click)="openInviteModal()" class="btn btn-secondary" title="Invite a new member to this household">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
             <circle cx="9" cy="7" r="4"></circle>
@@ -53,7 +63,62 @@
     </div>
   }
 
-  @if (currentHousehold(); as hh) {
+  @if (hasNoHouseholds()) {
+    <!-- Empty State Hero Card: User has no household -->
+    <div class="card no-household-hero">
+      <div class="hero-icon-ring">
+        <span class="hero-emoji">🏠</span>
+      </div>
+      <h2 class="hero-title">You're Not Part of Any Household Yet</h2>
+      <p class="hero-subtitle">
+        To start scheduling daily meals, tracking portion counts, and managing dietary requirements, 
+        you can create a brand new household profile or join an existing family with an invite code.
+      </p>
+
+      <div class="hero-action-buttons">
+        <button (click)="openCreateModal()" class="btn btn-primary btn-lg btn-glow">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Create Your Household</span>
+        </button>
+
+        <button (click)="openJoinModal()" class="btn btn-secondary btn-lg">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+            <polyline points="10 17 15 12 10 7"></polyline>
+            <line x1="15" y1="12" x2="3" y2="12"></line>
+          </svg>
+          <span>Join Existing with Code</span>
+        </button>
+      </div>
+
+      <div class="hero-perks-grid">
+        <div class="perk-card">
+          <span class="perk-icon">👑</span>
+          <div class="perk-info">
+            <strong>Household Ownership</strong>
+            <p>You become the owner with full management rights to invite family members or chefs.</p>
+          </div>
+        </div>
+        <div class="perk-card">
+          <span class="perk-icon">🥗</span>
+          <div class="perk-info">
+            <strong>Dietary Guidelines</strong>
+            <p>Specify Jain, vegetarian, gluten-free, or custom notes with default headcounts.</p>
+          </div>
+        </div>
+        <div class="perk-card">
+          <span class="perk-icon">📅</span>
+          <div class="perk-info">
+            <strong>Daily Meal Planning</strong>
+            <p>Plan breakfast, lunch, and dinner menus with automated ingredient grocery calculations.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  } @else if (currentHousehold(); as hh) {
     <!-- Main Content Layout Grid -->
     <div class="hh-grid">
       <!-- Left Column: Household Details & Members -->
@@ -603,6 +668,116 @@
             [disabled]="isDeleting()" 
             class="btn btn-danger">
             {{ isDeleting() ? 'Deleting...' : 'Yes, Delete Household' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Modal: Create New Household -->
+  @if (isCreateModalOpen()) {
+    <div class="modal-backdrop" (click)="closeCreateModal()">
+      <div class="modal-dialog modal-md" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <div class="modal-title-area">
+            <h3>Create New Household Profile</h3>
+            <p class="modal-subtext">Set up your residence or family kitchen profile to start meal planning.</p>
+          </div>
+          <button (click)="closeCreateModal()" class="btn btn-ghost btn-sm">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Household Name *</label>
+              <input 
+                type="text" 
+                [value]="createName()" 
+                (input)="createName.set($any($event.target).value)" 
+                placeholder="e.g. Sharma Residence or Flat 402" 
+                class="form-control" />
+            </div>
+
+            <div class="form-group">
+              <label>Short Code</label>
+              <input 
+                type="text" 
+                [value]="createCode()" 
+                (input)="createCode.set($any($event.target).value)" 
+                placeholder="e.g. HH-04" 
+                class="form-control" />
+            </div>
+
+            <div class="form-group">
+              <label>Default Headcount (Persons) *</label>
+              <input 
+                type="number" 
+                min="1" 
+                [value]="createHeadcount()" 
+                (input)="createHeadcount.set(+$any($event.target).value)" 
+                class="form-control" />
+            </div>
+
+            <div class="form-group">
+              <label>Contact Person</label>
+              <input 
+                type="text" 
+                [value]="createContactName()" 
+                (input)="createContactName.set($any($event.target).value)" 
+                placeholder="e.g. Primary resident" 
+                class="form-control" />
+            </div>
+
+            <div class="form-group">
+              <label>Contact Phone</label>
+              <input 
+                type="text" 
+                [value]="createContactPhone()" 
+                (input)="createContactPhone.set($any($event.target).value)" 
+                placeholder="e.g. +91 98765 43210" 
+                class="form-control" />
+            </div>
+
+            <div class="form-group">
+              <label>Theme Color Tag</label>
+              <div class="color-picker-row">
+                <input 
+                  type="color" 
+                  [value]="createColorTag()" 
+                  (input)="createColorTag.set($any($event.target).value)" 
+                  class="color-picker-input" />
+              </div>
+            </div>
+
+            <div class="form-group full-width">
+              <label>Delivery Address</label>
+              <input 
+                type="text" 
+                [value]="createAddress()" 
+                (input)="createAddress.set($any($event.target).value)" 
+                placeholder="e.g. B-104 Sunrise Heights, Road No. 2" 
+                class="form-control" />
+            </div>
+
+            <div class="form-group full-width">
+              <label>Dietary Restrictions & Guidelines</label>
+              <textarea 
+                [value]="createDietaryNotes()" 
+                (input)="createDietaryNotes.set($any($event.target).value)" 
+                placeholder="e.g. Vegetarian, Jain (no root veggies), Low spice, Nut allergy" 
+                rows="3" 
+                class="form-control"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button (click)="closeCreateModal()" class="btn btn-secondary" [disabled]="isCreatingHousehold()">Cancel</button>
+          <button 
+            (click)="submitCreateHousehold()" 
+            [disabled]="!createName().trim() || isCreatingHousehold()" 
+            class="btn btn-primary">
+            {{ isCreatingHousehold() ? 'Creating Household...' : 'Create Household' }}
           </button>
         </div>
       </div>

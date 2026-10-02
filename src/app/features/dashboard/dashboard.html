@@ -52,6 +52,25 @@
     </div>
   </div>
 
+  <!-- Onboarding Banner: No Household Assigned -->
+  @if (activeHouseholds().length === 0) {
+    <div class="card no-hh-dashboard-banner">
+      <div class="banner-icon">🏠</div>
+      <div class="banner-content">
+        <h3>Welcome! You're not part of any household yet</h3>
+        <p>To start scheduling daily meals, viewing inventory shortages, and managing portion headcounts, create your household profile or join an existing family.</p>
+        <div class="banner-actions">
+          <a routerLink="/households" class="btn btn-primary btn-sm btn-glow">
+            + Create a Household
+          </a>
+          <a routerLink="/households" class="btn btn-secondary btn-sm">
+            Join with Invite Code
+          </a>
+        </div>
+      </div>
+    </div>
+  }
+
   <!-- KPI Stat Metrics Grid -->
   <div class="stats-grid">
     <div class="stat-card">
