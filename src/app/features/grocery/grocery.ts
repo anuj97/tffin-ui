@@ -14,19 +14,28 @@ export class GroceryComponent {
   public store = inject(MealStoreService);
 
   public daysHorizon = signal<number>(4);
+  public selectedHouseholdFilter = signal<string>('');
   public checkedItems = signal<Set<string>>(new Set());
 
+  public activeHouseholds = this.store.activeHouseholds;
+
   public shortages = computed<ShortageReportItem[]>(() => {
-    // Calling the reactive calculator on the store
     // Re-evaluates whenever schedule, dishes, or inventory change!
     const _schedules = this.store.schedules();
     const _inventory = this.store.inventory();
     const _dishes = this.store.dishes();
-    return this.store.calculateShortages(this.daysHorizon());
+    const hhId = this.selectedHouseholdFilter() || null;
+    return this.store.calculateShortages(this.daysHorizon(), hhId);
   });
 
   public setHorizon(days: number): void {
     this.daysHorizon.set(days);
+    this.checkedItems.set(new Set());
+  }
+
+  public setHouseholdFilter(event: Event): void {
+    const val = (event.target as HTMLSelectElement).value;
+    this.selectedHouseholdFilter.set(val);
     this.checkedItems.set(new Set());
   }
 

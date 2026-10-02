@@ -5,7 +5,7 @@ import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
 import { MealSchedule, MealType } from '../models/meal-schedule.model';
-
+import { Household } from '../models/household.model';
 import { AppUser } from '../models/user.model';
 
 export interface SupabaseConfig {
@@ -104,11 +104,48 @@ export class SupabaseService {
       id: row.id,
       username: row.username,
       fullName: row.full_name || 'Kitchen Admin',
-      role: row.role || 'admin'
+      role: row.role || 'admin',
+      household_id: row.household_id || null
     };
   }
 
   // Database Access Methods
+  public async fetchHouseholds(): Promise<Household[]> {
+    if (!this.client) return [];
+    const { data, error } = await this.client
+      .from('households')
+      .select('*')
+      .order('name');
+    if (error) {
+      console.warn('Could not fetch households (table may not exist yet):', error.message);
+      return [];
+    }
+    return data || [];
+  }
+
+  public async createHousehold(household: Partial<Household>): Promise<Household> {
+    if (!this.client) throw new Error('Supabase client not active');
+    const { data, error } = await this.client
+      .from('households')
+      .insert(household)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  public async updateHousehold(id: string, updates: Partial<Household>): Promise<Household> {
+    if (!this.client) throw new Error('Supabase client not active');
+    const { data, error } = await this.client
+      .from('households')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
   public async fetchIngredients(): Promise<Ingredient[]> {
     if (!this.client) return [];
     const { data, error } = await this.client.from('ingredients').select('*').order('name');
@@ -134,6 +171,7 @@ export class SupabaseService {
         id,
         name,
         cook_notes,
+        household_id,
         recipe_ingredients (
           id,
           ingredient_id,
@@ -146,20 +184,23 @@ export class SupabaseService {
     return (data as unknown as Dish[]) || [];
   }
 
-  public async fetchMealSchedule(startDate: string, endDate: string): Promise<MealSchedule[]> {
+  public async fetchMealSchedule(startDate: string, endDate: string, householdId?: string | null): Promise<MealSchedule[]> {
     if (!this.client) return [];
-    const { data, error } = await this.client
+    let query = this.client
       .from('meal_schedule')
       .select(`
         id,
+        household_id,
         schedule_date,
         meal_type,
         dish_id,
         headcount,
+        household:households(*),
         dish:dishes(
           id,
           name,
           cook_notes,
+          household_id,
           recipe_ingredients (
             ingredient_id,
             qty_per_person,
@@ -170,39 +211,78 @@ export class SupabaseService {
       .gte('schedule_date', startDate)
       .lte('schedule_date', endDate)
       .order('schedule_date');
+
+    if (householdId) {
+      query = query.eq('household_id', householdId);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
     return (data as unknown as MealSchedule[]) || [];
   }
 
   // Mutations
-  public async updateHeadcountRPC(date: string, meal: MealType, delta: number): Promise<number> {
+  public async updateHeadcountRPC(household_id: string, date: string, meal: MealType, delta: number): Promise<number> {
     if (!this.client) throw new Error('Supabase client not active');
-    const { data, error } = await this.client.rpc('update_meal_headcount', {
-      p_date: date,
-      p_meal: meal,
-      p_delta: delta
-    });
-    if (error) throw error;
-    return data as number;
+    // Try calling with household_id, with fallback to legacy RPC if needed
+    try {
+      const { data, error } = await this.client.rpc('update_meal_headcount', {
+        p_household_id: household_id,
+        p_date: date,
+        p_meal: meal,
+        p_delta: delta
+      });
+      if (error) throw error;
+      return data as number;
+    } catch (e: any) {
+      // Fallback to legacy single-household RPC
+      const { data, error } = await this.client.rpc('update_meal_headcount', {
+        p_date: date,
+        p_meal: meal,
+        p_delta: delta
+      });
+      if (error) throw error;
+      return data as number;
+    }
   }
 
   public async upsertMealSchedule(
     schedule_date: string,
     meal_type: MealType,
     dish_id: string,
-    headcount: number
+    headcount: number,
+    household_id: string
   ): Promise<MealSchedule> {
     if (!this.client) throw new Error('Supabase client not active');
     const { data, error } = await this.client
       .from('meal_schedule')
       .upsert(
-        { schedule_date, meal_type, dish_id, headcount },
-        { onConflict: 'schedule_date,meal_type' }
+        { schedule_date, meal_type, dish_id, headcount, household_id },
+        { onConflict: 'household_id,schedule_date,meal_type' }
       )
-      .select()
+      .select(`
+        id,
+        household_id,
+        schedule_date,
+        meal_type,
+        dish_id,
+        headcount,
+        household:households(*),
+        dish:dishes(
+          id,
+          name,
+          cook_notes,
+          household_id,
+          recipe_ingredients (
+            ingredient_id,
+            qty_per_person,
+            ingredient:ingredients(*)
+          )
+        )
+      `)
       .single();
     if (error) throw error;
-    return data;
+    return data as unknown as MealSchedule;
   }
 
   public async updateInventory(ingredient_id: string, quantity: number, min_threshold?: number): Promise<void> {

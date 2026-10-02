@@ -454,3 +454,228 @@
     line-height: 1.4;
   }
 }
+
+/* Multi-Household Dashboard Enhancements */
+.filter-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-md);
+
+  label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .select-filter {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+
+    option {
+      background: #111827;
+      color: #f3f4f6;
+    }
+  }
+}
+
+.total-portions-tag {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.multi-hh-card {
+  .hh-plans-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .hh-plan-row {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 0.65rem 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+
+    .hh-row-main {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+
+      .hh-pill {
+        padding: 0.2rem 0.45rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.7rem;
+        font-weight: 800;
+        color: white;
+      }
+
+      .hh-row-text {
+        display: flex;
+        flex-direction: column;
+
+        .hh-title {
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: var(--text-muted);
+        }
+
+        .dish-title {
+          font-size: 0.95rem;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+      }
+    }
+
+    .dietary-chip {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      color: #fbbf24;
+      padding: 0.15rem 0.5rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+
+    .hh-row-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+
+      .micro {
+        padding: 0.1rem 0.25rem;
+
+        .btn-step {
+          width: 20px;
+          height: 20px;
+          font-size: 0.85rem;
+        }
+
+        .count-display {
+          font-size: 0.85rem;
+        }
+      }
+
+      .btn-edit-dish {
+        background: transparent;
+        border: 1px solid var(--border-subtle);
+        color: var(--text-muted);
+        border-radius: 4px;
+        width: 26px;
+        height: 26px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        &:hover {
+          color: var(--primary);
+          border-color: var(--primary);
+        }
+      }
+    }
+  }
+}
+
+/* Chef Batch Prep Widget */
+.prep-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.5rem;
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+
+    .widget-title {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+  }
+
+  .empty-prep-msg {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-style: italic;
+  }
+
+  .prep-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .prep-item {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 0.6rem 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    .prep-info {
+      display: flex;
+      flex-direction: column;
+
+      .prep-dish-name {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+
+      .prep-households {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+      }
+    }
+
+    .prep-count {
+      text-align: right;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+
+      .batch-num {
+        font-size: 1.15rem;
+        font-weight: 800;
+        color: var(--emerald);
+        line-height: 1;
+      }
+
+      .batch-lbl {
+        font-size: 0.65rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+      }
+    }
+  }
+}
+
+.stat-icon.purple {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+}

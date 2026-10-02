@@ -16,7 +16,7 @@
     }
   </div>
 
-  <!-- Horizon Filter Bar -->
+  <!-- Horizon & Household Filter Bar -->
   <div class="horizon-bar">
     <div class="horizon-controls">
       <span class="label">Forecast Horizon:</span>
@@ -33,6 +33,19 @@
           (click)="setHorizon(7)" 
           [class.active]="daysHorizon() === 7" 
           class="btn-horizon">Full Week (7 Days)</button>
+      </div>
+
+      <div class="hh-filter-inline">
+        <span class="label">Household:</span>
+        <select 
+          class="form-control select-compact"
+          [value]="selectedHouseholdFilter()" 
+          (change)="setHouseholdFilter($event)">
+          <option value="">All Households (Combined Kitchen)</option>
+          @for (hh of activeHouseholds(); track hh.id) {
+            <option [value]="hh.id">{{ hh.name }} ({{ hh.default_headcount }}p)</option>
+          }
+        </select>
       </div>
     </div>
 

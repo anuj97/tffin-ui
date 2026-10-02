@@ -72,6 +72,34 @@
       </a>
     </nav>
 
+    <!-- Household Switcher & Actions -->
+    <div class="household-switcher-section">
+      <div class="household-select-wrapper">
+        <span class="household-label">Household:</span>
+        <select 
+          class="household-select" 
+          [value]="selectedHouseholdId() || ''" 
+          (change)="onSelectHousehold($event)">
+          <option value="">🏠 All Households</option>
+          @for (hh of activeHouseholds(); track hh.id) {
+            <option [value]="hh.id">
+              {{ hh.name }} ({{ hh.default_headcount }}p)
+            </option>
+          }
+        </select>
+      </div>
+
+      <button (click)="openManageModal()" class="btn-manage-hh" title="Manage households and families">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+        <span>Households</span>
+      </button>
+    </div>
+
     <!-- User Profile & Logout -->
     @if (currentUser(); as user) {
       <div class="user-profile-section">
@@ -96,6 +124,137 @@
       </div>
     }
   </div>
+
+  <!-- Household Management Modal -->
+  @if (isManageModalOpen()) {
+    <div class="modal-backdrop" (click)="closeManageModal()">
+      <div class="modal-dialog hh-dialog" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <div class="modal-title-area">
+            <h3>Manage Households</h3>
+            <p class="modal-subtext">Add or edit clients, default headcount, and dietary constraints.</p>
+          </div>
+          <button (click)="closeManageModal()" class="btn btn-ghost btn-sm">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- List of Households -->
+          <div class="hh-list">
+            @for (hh of households(); track hh.id) {
+              <div class="hh-card" [class.inactive]="!hh.is_active">
+                <div class="hh-card-header">
+                  <div class="hh-badge-pill" [style.background-color]="hh.color_tag || '#6366f1'">
+                    {{ hh.code || 'HH' }}
+                  </div>
+                  <div class="hh-info">
+                    <span class="hh-name">{{ hh.name }}</span>
+                    @if (hh.contact_name) {
+                      <span class="hh-contact">Contact: {{ hh.contact_name }}</span>
+                    }
+                  </div>
+                  <div class="hh-actions">
+                    <span class="hh-headcount-badge">{{ hh.default_headcount }} portions</span>
+                    <button 
+                      (click)="toggleActive(hh.id)" 
+                      class="btn-toggle" 
+                      [class.btn-toggle-active]="hh.is_active"
+                      title="Toggle active status">
+                      {{ hh.is_active ? 'Active' : 'Inactive' }}
+                    </button>
+                  </div>
+                </div>
+
+                @if (hh.dietary_notes) {
+                  <div class="hh-dietary">
+                    <span class="dietary-icon">🥗</span>
+                    <span>{{ hh.dietary_notes }}</span>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+
+          <!-- Add Household Form Toggle -->
+          @if (!isCreateFormVisible()) {
+            <button (click)="isCreateFormVisible.set(true)" class="btn btn-secondary btn-block mt-3">
+              + Add New Household
+            </button>
+          } @else {
+            <div class="hh-create-form mt-3">
+              <h4 class="form-title">Add New Household Profile</h4>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>Household Name *</label>
+                  <input 
+                    type="text" 
+                    [value]="newName()" 
+                    (input)="newName.set($any($event.target).value)" 
+                    placeholder="e.g. Mehta Family or Flat 301" 
+                    class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label>Short Code</label>
+                  <input 
+                    type="text" 
+                    [value]="newCode()" 
+                    (input)="newCode.set($any($event.target).value)" 
+                    placeholder="e.g. HH-04" 
+                    class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label>Contact Name</label>
+                  <input 
+                    type="text" 
+                    [value]="newContactName()" 
+                    (input)="newContactName.set($any($event.target).value)" 
+                    placeholder="e.g. Rahul Mehta" 
+                    class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label>Default Headcount</label>
+                  <input 
+                    type="number" 
+                    [value]="newHeadcount()" 
+                    (input)="newHeadcount.set(+$any($event.target).value)" 
+                    min="1" 
+                    class="form-control" />
+                </div>
+                <div class="form-group full-width">
+                  <label>Dietary Restrictions / Notes</label>
+                  <input 
+                    type="text" 
+                    [value]="newDietaryNotes()" 
+                    (input)="newDietaryNotes.set($any($event.target).value)" 
+                    placeholder="e.g. Jain (no garlic/onion), Gluten-free, Low spice" 
+                    class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label>Theme Color Tag</label>
+                  <div class="color-picker-row">
+                    <input 
+                      type="color" 
+                      [value]="newColorTag()" 
+                      (input)="newColorTag.set($any($event.target).value)" 
+                      class="color-input" />
+                    <span class="color-preview" [style.background-color]="newColorTag()"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-buttons mt-2">
+                <button (click)="isCreateFormVisible.set(false)" class="btn btn-secondary btn-sm">Cancel</button>
+                <button (click)="saveNewHousehold()" class="btn btn-primary btn-sm" [disabled]="!newName().trim()">Save Household</button>
+              </div>
+            </div>
+          }
+        </div>
+
+        <div class="modal-footer">
+          <button (click)="closeManageModal()" class="btn btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+  }
 
   <!-- Global Toast Notification Banner -->
   @if (store.notification(); as toast) {

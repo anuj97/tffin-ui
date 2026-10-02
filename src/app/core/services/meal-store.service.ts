@@ -3,11 +3,39 @@ import { SupabaseService } from './supabase.service';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
+import { Household } from '../models/household.model';
 import { MealSchedule, MealStockStatus, MealType, ShortageReportItem } from '../models/meal-schedule.model';
 
 export function getTodayString(): string {
   const d = new Date();
   return d.toISOString().split('T')[0];
+}
+
+export const DEFAULT_HOUSEHOLD: Household = {
+  id: 'default-household-01',
+  name: 'Main Household',
+  code: 'HH-01',
+  contact_name: 'Primary Contact',
+  default_headcount: 3,
+  dietary_notes: 'Standard diet',
+  color_tag: '#6366f1',
+  is_active: true
+};
+
+export interface SlotHouseholdPlan {
+  schedule: MealSchedule;
+  household: Household | null;
+  dish: Dish | null;
+  stockStatus: MealStockStatus | null;
+}
+
+export interface DayMealSlot {
+  mealType: MealType;
+  schedule: MealSchedule | null;
+  dish: Dish | null;
+  stockStatus: MealStockStatus | null;
+  householdPlans: SlotHouseholdPlan[];
+  totalHeadcount: number;
 }
 
 @Injectable({
@@ -17,6 +45,8 @@ export class MealStoreService {
   private supabase = inject(SupabaseService);
 
   // State Signals
+  public households = signal<Household[]>([DEFAULT_HOUSEHOLD]);
+  public selectedHouseholdId = signal<string | null>(null); // null = "All Households"
   public ingredients = signal<Ingredient[]>([]);
   public inventory = signal<InventoryItem[]>([]);
   public dishes = signal<Dish[]>([]);
@@ -51,16 +81,25 @@ export class MealStoreService {
     this.inventory.set([]);
     this.dishes.set([]);
     this.schedules.set([]);
+    this.households.set([DEFAULT_HOUSEHOLD]);
+    this.selectedHouseholdId.set(null);
   }
 
   public async loadFromSupabase(): Promise<void> {
     try {
       this.lastError.set(null);
-      const [ings, invs, dshs] = await Promise.all([
+      const [hhs, ings, invs, dshs] = await Promise.all([
+        this.supabase.fetchHouseholds(),
         this.supabase.fetchIngredients(),
         this.supabase.fetchInventory(),
         this.supabase.fetchDishes()
       ]);
+
+      if (hhs && hhs.length > 0) {
+        this.households.set(hhs);
+      } else {
+        this.households.set([DEFAULT_HOUSEHOLD]);
+      }
 
       this.ingredients.set(ings);
       this.inventory.set(invs);
@@ -83,7 +122,26 @@ export class MealStoreService {
     }
   }
 
-  // Lookups
+  // Lookups & Computeds
+  public activeHouseholds = computed(() => {
+    const list = this.households().filter(h => h.is_active);
+    return list.length > 0 ? list : [DEFAULT_HOUSEHOLD];
+  });
+
+  public householdsMap = computed(() => {
+    const map = new Map<string, Household>();
+    for (const h of this.households()) {
+      map.set(h.id, h);
+    }
+    return map;
+  });
+
+  public selectedHousehold = computed(() => {
+    const id = this.selectedHouseholdId();
+    if (!id) return null;
+    return this.householdsMap().get(id) || null;
+  });
+
   public ingredientsMap = computed(() => {
     const map = new Map<string, Ingredient>();
     for (const ing of this.ingredients()) {
@@ -141,21 +199,44 @@ export class MealStoreService {
     return this.getMealsForDate(today);
   });
 
-  public getMealsForDate(dateStr: string) {
-    const daySchedules = this.schedules().filter(s => s.schedule_date === dateStr);
+  public getMealsForDate(dateStr: string, householdId?: string | null): DayMealSlot[] {
+    const filterHhId = householdId !== undefined ? householdId : this.selectedHouseholdId();
+    let daySchedules = this.schedules().filter(s => s.schedule_date === dateStr);
+    if (filterHhId) {
+      daySchedules = daySchedules.filter(s => s.household_id === filterHhId);
+    }
+
     const dMap = this.dishesMap();
+    const hhMap = this.householdsMap();
 
     const types: MealType[] = ['breakfast', 'lunch', 'dinner'];
     return types.map(type => {
-      const meal = daySchedules.find(s => s.meal_type === type);
-      const dish = meal ? dMap.get(meal.dish_id) : undefined;
-      const stockStatus = meal && dish ? this.calculateMealStockStatus(dish, meal.headcount) : null;
+      const typeSchedules = daySchedules.filter(s => s.meal_type === type);
+      const firstSchedule = typeSchedules[0] || null;
+      const dish = firstSchedule ? dMap.get(firstSchedule.dish_id) : undefined;
+      const stockStatus = firstSchedule && dish ? this.calculateMealStockStatus(dish, firstSchedule.headcount) : null;
+
+      const householdPlans: SlotHouseholdPlan[] = typeSchedules.map(sched => {
+        const d = dMap.get(sched.dish_id) || null;
+        const hh = sched.household || hhMap.get(sched.household_id) || null;
+        const status = d ? this.calculateMealStockStatus(d, sched.headcount) : null;
+        return {
+          schedule: sched,
+          household: hh,
+          dish: d,
+          stockStatus: status
+        };
+      });
+
+      const totalHeadcount = typeSchedules.reduce((sum, s) => sum + (s.headcount || 0), 0);
 
       return {
         mealType: type,
-        schedule: meal || null,
+        schedule: firstSchedule,
         dish: dish || null,
-        stockStatus
+        stockStatus,
+        householdPlans,
+        totalHeadcount
       };
     });
   }
@@ -190,8 +271,8 @@ export class MealStoreService {
     };
   }
 
-  // Smart Grocery Shortage List for upcoming N days
-  public calculateShortages(daysAhead: number = 4): ShortageReportItem[] {
+  // Smart Grocery Shortage List for upcoming N days (aggregates across all or selected households)
+  public calculateShortages(daysAhead: number = 4, householdId?: string | null): ShortageReportItem[] {
     const today = new Date();
     const endDate = new Date();
     endDate.setDate(today.getDate() + daysAhead);
@@ -199,15 +280,19 @@ export class MealStoreService {
     const todayStr = today.toISOString().split('T')[0];
     const endStr = endDate.toISOString().split('T')[0];
 
-    const targetSchedules = this.schedules().filter(
+    const filterHhId = householdId !== undefined ? householdId : this.selectedHouseholdId();
+    let targetSchedules = this.schedules().filter(
       s => s.schedule_date >= todayStr && s.schedule_date <= endStr
     );
+    if (filterHhId) {
+      targetSchedules = targetSchedules.filter(s => s.household_id === filterHhId);
+    }
 
     const ingMap = this.ingredientsMap();
     const invMap = this.inventoryMap();
     const dMap = this.dishesMap();
 
-    // Sum required quantities per ingredient
+    // Sum required quantities per ingredient across all matching households!
     const requiredMap = new Map<string, number>();
 
     for (const sched of targetSchedules) {
@@ -242,29 +327,96 @@ export class MealStoreService {
     return shortages.sort((a, b) => b.deficit - a.deficit);
   }
 
-  // State Mutations with Optimistic Updates
-  public async adjustHeadcount(scheduleDate: string, mealType: MealType, delta: number): Promise<void> {
+  // Household Selection & Management
+  public setSelectedHousehold(id: string | null): void {
+    this.selectedHouseholdId.set(id);
+  }
+
+  public async createHousehold(household: Partial<Household>): Promise<Household | null> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
+      const newHh: Household = {
+        id: 'hh-' + Date.now(),
+        name: household.name || 'New Household',
+        code: household.code || `HH-${this.households().length + 1}`,
+        contact_name: household.contact_name || '',
+        contact_phone: household.contact_phone || '',
+        address: household.address || '',
+        default_headcount: household.default_headcount || 2,
+        dietary_notes: household.dietary_notes || '',
+        color_tag: household.color_tag || '#6366f1',
+        is_active: household.is_active ?? true,
+        created_at: new Date().toISOString()
+      };
+      this.households.set([...this.households(), newHh]);
+      this.showNotification(`Created household: ${newHh.name}`, 'success');
+      return newHh;
+    }
+
+    try {
+      const created = await this.supabase.createHousehold(household);
+      this.households.set([...this.households(), created]);
+      this.showNotification(`Created household: ${created.name}`, 'success');
+      return created;
+    } catch (err: any) {
+      this.showNotification(`Failed to create household: ${err.message}`, 'error');
+      return null;
+    }
+  }
+
+  public async updateHousehold(id: string, updates: Partial<Household>): Promise<void> {
+    if (!this.supabase.hasClient) {
+      const list = this.households().map(h => (h.id === id ? { ...h, ...updates } : h));
+      this.households.set(list);
+      this.showNotification('Household updated', 'success');
       return;
     }
+
+    try {
+      const updated = await this.supabase.updateHousehold(id, updates);
+      const list = this.households().map(h => (h.id === id ? updated : h));
+      this.households.set(list);
+      this.showNotification(`Updated household: ${updated.name}`, 'success');
+    } catch (err: any) {
+      this.showNotification(`Failed to update household: ${err.message}`, 'error');
+    }
+  }
+
+  public async toggleHouseholdActive(id: string): Promise<void> {
+    const hh = this.householdsMap().get(id);
+    if (!hh) return;
+    await this.updateHousehold(id, { is_active: !hh.is_active });
+  }
+
+  // State Mutations with Optimistic Updates
+  public async adjustHeadcount(
+    scheduleDate: string,
+    mealType: MealType,
+    delta: number,
+    householdId?: string
+  ): Promise<void> {
+    if (!this.supabase.hasClient) {
+      this.showNotification('Supabase connection missing. Please configure credentials.', 'error');
+      return;
+    }
+
+    const effectiveHhId = householdId || this.selectedHouseholdId() || this.activeHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
 
     // 1. Optimistic local update
     const current = this.schedules();
     const existingIndex = current.findIndex(
-      s => s.schedule_date === scheduleDate && s.meal_type === mealType
+      s => s.schedule_date === scheduleDate && s.meal_type === mealType && (s.household_id === effectiveHhId || !s.household_id)
     );
 
     if (existingIndex >= 0) {
       const target = current[existingIndex];
       const newCount = Math.max(0, target.headcount + delta);
       const updated = [...current];
-      updated[existingIndex] = { ...target, headcount: newCount };
+      updated[existingIndex] = { ...target, headcount: newCount, household_id: effectiveHhId };
       this.schedules.set(updated);
 
       // 2. Call Supabase RPC
       try {
-        await this.supabase.updateHeadcountRPC(scheduleDate, mealType, delta);
+        await this.supabase.updateHeadcountRPC(effectiveHhId, scheduleDate, mealType, delta);
       } catch (err: any) {
         this.showNotification(`Error updating headcount: ${err.message}`, 'error');
         // Revert on failure
@@ -277,28 +429,33 @@ export class MealStoreService {
     schedule_date: string,
     meal_type: MealType,
     dish_id: string,
-    headcount: number = 3
+    headcount?: number,
+    household_id?: string
   ): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure credentials.', 'error');
       return;
     }
 
+    const targetHhId = household_id || this.selectedHouseholdId() || this.activeHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
+    const targetHh = this.householdsMap().get(targetHhId);
+    const finalHeadcount = headcount !== undefined ? headcount : (targetHh?.default_headcount || 3);
+
     try {
-      const saved = await this.supabase.upsertMealSchedule(schedule_date, meal_type, dish_id, headcount);
+      const saved = await this.supabase.upsertMealSchedule(schedule_date, meal_type, dish_id, finalHeadcount, targetHhId);
       const current = this.schedules();
       const existingIndex = current.findIndex(
-        s => s.schedule_date === schedule_date && s.meal_type === meal_type
+        s => s.schedule_date === schedule_date && s.meal_type === meal_type && s.household_id === targetHhId
       );
 
       if (existingIndex >= 0) {
         const list = [...current];
-        list[existingIndex] = { ...current[existingIndex], dish_id, headcount };
+        list[existingIndex] = { ...current[existingIndex], dish_id, headcount: finalHeadcount, household_id: targetHhId, household: targetHh };
         this.schedules.set(list);
       } else {
-        this.schedules.set([...current, saved]);
+        this.schedules.set([...current, { ...saved, household: targetHh }]);
       }
-      this.showNotification(`Meal scheduled for ${meal_type} on ${schedule_date}`, 'success');
+      this.showNotification(`Meal scheduled for ${meal_type} (${targetHh?.name || 'Household'}) on ${schedule_date}`, 'success');
     } catch (err: any) {
       this.showNotification(`Error saving schedule: ${err.message}`, 'error');
     }
@@ -306,7 +463,7 @@ export class MealStoreService {
 
   public async updateInventoryQuantity(ingredientId: string, newQuantity: number, minThreshold?: number): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure credentials.', 'error');
       return;
     }
 
@@ -350,7 +507,7 @@ export class MealStoreService {
     minThreshold: number = 0
   ): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure credentials.', 'error');
       return;
     }
 
@@ -383,7 +540,7 @@ export class MealStoreService {
     recipeIngredients: { ingredient_id: string; qty_per_person: number }[]
   ): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure credentials.', 'error');
       return;
     }
 
@@ -399,7 +556,7 @@ export class MealStoreService {
 
   public async deleteDish(dishId: string): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.showNotification('Supabase connection missing. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment.', 'error');
+      this.showNotification('Supabase connection missing. Please configure credentials.', 'error');
       return;
     }
 

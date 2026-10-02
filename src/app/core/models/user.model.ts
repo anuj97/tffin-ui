@@ -3,4 +3,5 @@ export interface AppUser {
   username: string;
   fullName: string;
   role: string;
+  household_id?: string | null;
 }

@@ -249,3 +249,158 @@
   color: var(--text-muted);
   font-weight: 500;
 }
+
+/* Multi-Household Planner Enhancements */
+.planner-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.filter-pill-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  .filter-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .select-compact {
+    font-size: 0.85rem;
+    padding: 0.35rem 0.75rem;
+    min-width: 220px;
+    background: var(--bg-surface);
+  }
+}
+
+.slot-total-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.multi-hh-slot {
+  cursor: default;
+  gap: 0.6rem;
+
+  &:hover {
+    transform: none;
+  }
+}
+
+.hh-plans-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.hh-plan-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    border-color: var(--primary);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .hh-plan-top {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+
+    .hh-code-badge {
+      font-size: 0.65rem;
+      font-weight: 800;
+      color: white;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      line-height: 1.2;
+    }
+
+    .hh-dish-name {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
+  .hh-plan-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    .stock-tiny-indicator {
+      font-size: 0.65rem;
+      font-weight: 600;
+
+      &.ok {
+        color: var(--emerald);
+      }
+
+      &.warn {
+        color: var(--rose);
+      }
+    }
+
+    .micro {
+      font-size: 0.7rem;
+    }
+  }
+}
+
+.add-hh-plan-btn {
+  margin-top: 0.25rem;
+  text-align: center;
+  font-size: 0.725rem;
+  color: var(--text-muted);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+    background: rgba(245, 158, 11, 0.05);
+  }
+}
+
+.dietary-alert-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.85rem;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  color: #fbbf24;
+
+  .alert-icon {
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  strong {
+    color: #fef3c7;
+  }
+}
