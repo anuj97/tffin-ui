@@ -468,18 +468,21 @@ export class MealStoreService {
     }
 
     try {
-      const created = await this.supabase.createHousehold(household);
+      const created = await this.supabase.createHousehold(household, user?.id);
       this.households.set([...this.households(), created]);
 
       if (user) {
         const isStaff = ['admin', 'chef'].includes(user.role);
         if (!isStaff || isUnassignedUser) {
           try {
-            await this.supabase.clientInstance?.from('household_members').insert({
-              household_id: created.id,
-              user_id: user.id,
-              role_in_household: 'owner'
-            });
+            await this.supabase.clientInstance?.from('household_members').upsert(
+              {
+                household_id: created.id,
+                user_id: user.id,
+                role_in_household: 'owner'
+              },
+              { onConflict: 'household_id,user_id' }
+            );
           } catch (memErr) {
             console.warn('Could not insert household_member record:', memErr);
           }
@@ -583,7 +586,7 @@ export class MealStoreService {
     }
 
     try {
-      await this.supabase.deleteHousehold(id);
+      await this.supabase.deleteHousehold(id, user?.id);
       this.households.update(list => list.filter(h => h.id !== id));
       this.householdMembers.update(list => list.filter(m => m.household_id !== id));
       this.householdInvitations.update(list => list.filter(i => i.household_id !== id));

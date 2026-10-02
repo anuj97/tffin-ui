@@ -258,8 +258,37 @@ export class SupabaseService {
     return data || [];
   }
 
-  public async createHousehold(household: Partial<Household>): Promise<Household> {
+  public async createHousehold(household: Partial<Household>, userId?: string): Promise<Household> {
     if (!this.client) throw new Error('Supabase client not active');
+
+    // 1. Try calling the create_household stored procedure (SECURITY DEFINER)
+    try {
+      const { data: rpcData, error: rpcError } = await this.client.rpc('create_household', {
+        p_name: household.name || 'New Household',
+        p_code: household.code || null,
+        p_contact_name: household.contact_name || null,
+        p_contact_phone: household.contact_phone || null,
+        p_address: household.address || null,
+        p_default_headcount: Number(household.default_headcount) || 2,
+        p_dietary_notes: household.dietary_notes || null,
+        p_color_tag: household.color_tag || '#6366f1',
+        p_user_id: userId || null
+      });
+
+      if (!rpcError && rpcData) {
+        const result = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+        if (result && result.id) {
+          return result as Household;
+        }
+      }
+      if (rpcError) {
+        console.warn('create_household RPC call returned error, falling back to direct insert:', rpcError.message);
+      }
+    } catch (rpcErr) {
+      console.warn('create_household RPC threw exception, falling back to direct insert:', rpcErr);
+    }
+
+    // 2. Direct table insert fallback
     const { data, error } = await this.client
       .from('households')
       .insert(household)
@@ -281,8 +310,24 @@ export class SupabaseService {
     return data;
   }
 
-  public async deleteHousehold(id: string): Promise<void> {
+  public async deleteHousehold(id: string, userId?: string): Promise<void> {
     if (!this.client) return;
+
+    // 1. Try calling delete_household stored procedure (SECURITY DEFINER)
+    try {
+      const { data: rpcData, error: rpcError } = await this.client.rpc('delete_household', {
+        p_household_id: id,
+        p_user_id: userId || null
+      });
+
+      if (!rpcError && rpcData === true) {
+        return;
+      }
+    } catch (rpcErr) {
+      console.warn('delete_household RPC call failed, falling back to direct delete:', rpcErr);
+    }
+
+    // 2. Direct delete fallback
     const { error } = await this.client
       .from('households')
       .delete()
