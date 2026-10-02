@@ -70,6 +70,12 @@
   }
 }
 
+.btn svg {
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+}
+
 .btn-glow {
   box-shadow: 0 0 16px var(--primary-glow);
 }
@@ -159,8 +165,16 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        padding: 0;
         cursor: pointer;
         transition: all var(--transition-fast);
+
+        svg {
+          width: 13px;
+          height: 13px;
+          display: block;
+          flex-shrink: 0;
+        }
 
         &:hover {
           background: var(--primary);
@@ -209,6 +223,13 @@
           display: inline-flex;
           align-items: center;
           gap: 0.35rem;
+
+          svg {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+            display: block;
+          }
 
           .meta-label {
             color: var(--primary);
@@ -287,6 +308,13 @@
       cursor: pointer;
       transition: all var(--transition-fast);
 
+      svg {
+        width: 13px;
+        height: 13px;
+        flex-shrink: 0;
+        display: block;
+      }
+
       &:hover {
         background: rgba(255, 255, 255, 0.07);
         color: var(--text-primary);
@@ -318,6 +346,13 @@
     cursor: pointer;
     transition: all var(--transition-fast);
     white-space: nowrap;
+
+    svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      display: block;
+    }
 
     &:hover {
       background: rgba(255, 255, 255, 0.04);
@@ -409,22 +444,42 @@
 
   .input-icon {
     position: absolute;
-    left: 0.9rem;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
     color: var(--text-muted);
     pointer-events: none;
+    display: block;
+    flex-shrink: 0;
+    transition: color var(--transition-fast);
   }
 
   .input-icon-text {
     position: absolute;
-    left: 0.95rem;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-weight: 700;
+    font-size: 1rem;
+    line-height: 1;
     color: var(--primary);
     pointer-events: none;
   }
 
   input.form-control {
-    padding-left: 2.6rem;
+    padding-left: 2.7rem;
     width: 100%;
+  }
+
+  &:focus-within .input-icon {
+    color: var(--primary);
   }
 }
 
@@ -707,20 +762,31 @@
     align-items: center;
 
     .form-control {
-      padding-right: 2.5rem;
+      padding-right: 2.75rem;
       width: 100%;
     }
 
     .btn-toggle-pw {
       position: absolute;
       right: 0.75rem;
-      font-size: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      padding: 0.3rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.05rem;
+      line-height: 1;
       cursor: pointer;
-      opacity: 0.7;
-      transition: opacity var(--transition-fast);
+      opacity: 0.75;
+      border-radius: var(--radius-sm);
+      transition: opacity var(--transition-fast), background var(--transition-fast);
 
       &:hover {
         opacity: 1;
+        background: rgba(255, 255, 255, 0.08);
       }
     }
   }
