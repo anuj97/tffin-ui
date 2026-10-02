@@ -1,4 +1,4 @@
-import { Household } from '../models/household.model';
+import { Household, HouseholdMember, HouseholdInvitation } from '../models/household.model';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
@@ -84,6 +84,90 @@ export const MOCK_HOUSEHOLDS: Household[] = [
     color_tag: '#f59e0b',
     is_active: true,
     created_at: new Date().toISOString()
+  }
+];
+
+export const MOCK_HOUSEHOLD_MEMBERS: HouseholdMember[] = [
+  // Main Household (HH-01)
+  {
+    id: 'hm-1',
+    household_id: 'mock-hh-01',
+    user_id: 'user-admin',
+    role_in_household: 'owner',
+    username: 'admin',
+    fullName: 'Kitchen Super Admin',
+    created_at: '2026-09-01T00:00:00Z'
+  },
+  {
+    id: 'hm-2',
+    household_id: 'mock-hh-01',
+    user_id: 'user-chef',
+    role_in_household: 'member',
+    username: 'chef_rajesh',
+    fullName: 'Chef Rajesh',
+    created_at: '2026-09-05T00:00:00Z'
+  },
+  // Verma Residence (HH-02)
+  {
+    id: 'hm-3',
+    household_id: 'mock-hh-02',
+    user_id: 'user-verma',
+    role_in_household: 'owner',
+    username: 'amit_verma',
+    fullName: 'Amit Verma',
+    created_at: '2026-09-10T00:00:00Z'
+  },
+  {
+    id: 'hm-4',
+    household_id: 'mock-hh-02',
+    user_id: 'user-multi',
+    role_in_household: 'member',
+    username: 'kiran_manager',
+    fullName: 'Kiran Manager',
+    created_at: '2026-09-12T00:00:00Z'
+  },
+  // Apartment 301 (HH-03)
+  {
+    id: 'hm-5',
+    household_id: 'mock-hh-03',
+    user_id: 'user-priya',
+    role_in_household: 'owner',
+    username: 'priya_patel',
+    fullName: 'Priya Patel',
+    created_at: '2026-09-15T00:00:00Z'
+  },
+  {
+    id: 'hm-6',
+    household_id: 'mock-hh-03',
+    user_id: 'user-multi',
+    role_in_household: 'member',
+    username: 'kiran_manager',
+    fullName: 'Kiran Manager',
+    created_at: '2026-09-16T00:00:00Z'
+  }
+];
+
+export const MOCK_INVITATIONS: HouseholdInvitation[] = [
+  {
+    id: 'inv-1',
+    household_id: 'mock-hh-02',
+    invite_code: 'TFFN-VERMA77',
+    role_in_household: 'member',
+    status: 'pending',
+    email: 'rohit.verma@example.com',
+    expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
+    created_at: new Date().toISOString(),
+    household_name: 'Verma Residence'
+  },
+  {
+    id: 'inv-2',
+    household_id: 'mock-hh-03',
+    invite_code: 'TFFN-APT301',
+    role_in_household: 'member',
+    status: 'pending',
+    expires_at: new Date(Date.now() + 5 * 86400000).toISOString(),
+    created_at: new Date().toISOString(),
+    household_name: 'Apartment 301'
   }
 ];
 

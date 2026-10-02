@@ -65,7 +65,7 @@
       }
 
       @if (canManageHouseholds()) {
-        <button (click)="openManageModal()" class="btn-manage-hh" title="Manage households and families">
+        <a routerLink="/households" class="btn-manage-hh" title="Manage households and invite members">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
             <circle cx="9" cy="7" r="4"></circle>
@@ -73,7 +73,7 @@
             <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
           </svg>
           <span>Households</span>
-        </button>
+        </a>
       }
 
       <!-- Local Debug Indicator -->
@@ -379,6 +379,21 @@
           <div class="nav-label-group">
             <span class="nav-title">Grocery Shortages</span>
             <span class="nav-desc">Aggregated grocery shopping list</span>
+          </div>
+        </a>
+
+        <a routerLink="/households" routerLinkActive="active" (click)="closeSidebar()" class="drawer-nav-item">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+          </div>
+          <div class="nav-label-group">
+            <span class="nav-title">Households & Members</span>
+            <span class="nav-desc">Profiles, dietary notes & member invites</span>
           </div>
         </a>
       </nav>

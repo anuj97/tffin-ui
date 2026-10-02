@@ -5,7 +5,7 @@ import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
 import { MealSchedule, MealType } from '../models/meal-schedule.model';
-import { Household } from '../models/household.model';
+import { Household, HouseholdMember, HouseholdInvitation } from '../models/household.model';
 import { AppUser } from '../models/user.model';
 
 export interface SupabaseConfig {
@@ -149,6 +149,120 @@ export class SupabaseService {
       .single();
     if (error) throw error;
     return data;
+  }
+
+  // Household Members & Invitations
+  public async fetchHouseholdMembers(householdId: string): Promise<HouseholdMember[]> {
+    if (!this.client) return [];
+    const { data, error } = await this.client
+      .from('household_members')
+      .select(`
+        id,
+        household_id,
+        user_id,
+        role_in_household,
+        created_at,
+        app_users (
+          username,
+          full_name,
+          email
+        )
+      `)
+      .eq('household_id', householdId);
+
+    if (error) {
+      console.warn('Could not fetch household members:', error.message);
+      return [];
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      household_id: row.household_id,
+      user_id: row.user_id,
+      role_in_household: row.role_in_household || 'member',
+      created_at: row.created_at,
+      username: row.app_users?.username || 'member',
+      fullName: row.app_users?.full_name || row.app_users?.username || 'Member',
+      email: row.app_users?.email
+    }));
+  }
+
+  public async fetchHouseholdInvitations(householdId: string): Promise<HouseholdInvitation[]> {
+    if (!this.client) return [];
+    const { data, error } = await this.client
+      .from('household_invitations')
+      .select('*')
+      .eq('household_id', householdId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('Could not fetch household invitations:', error.message);
+      return [];
+    }
+    return data || [];
+  }
+
+  public async createHouseholdInvitation(
+    householdId: string,
+    invitedBy: string,
+    role: string = 'member',
+    email?: string,
+    validDays: number = 7
+  ): Promise<HouseholdInvitation> {
+    if (!this.client) throw new Error('Supabase client not active');
+    const { data, error } = await this.client.rpc('create_household_invitation', {
+      p_household_id: householdId,
+      p_invited_by: invitedBy,
+      p_role: role,
+      p_email: email || null,
+      p_valid_days: validDays
+    });
+
+    if (error) throw error;
+    const row = data[0];
+    return {
+      id: row.id,
+      household_id: row.household_id,
+      invite_code: row.invite_code,
+      role_in_household: row.role_in_household || role,
+      status: row.status || 'pending',
+      expires_at: row.expires_at,
+      created_at: row.created_at,
+      email
+    };
+  }
+
+  public async acceptHouseholdInvitation(
+    inviteCode: string,
+    userId: string
+  ): Promise<{ success: boolean; message: string; household_id?: string; household_name?: string; role_in_household?: string }> {
+    if (!this.client) throw new Error('Supabase client not active');
+    const { data, error } = await this.client.rpc('accept_household_invitation', {
+      p_invite_code: inviteCode.trim(),
+      p_user_id: userId
+    });
+
+    if (error) throw error;
+    return data[0];
+  }
+
+  public async revokeHouseholdInvitation(invitationId: string): Promise<void> {
+    if (!this.client) return;
+    const { error } = await this.client
+      .from('household_invitations')
+      .update({ status: 'revoked' })
+      .eq('id', invitationId);
+    if (error) throw error;
+  }
+
+  public async removeHouseholdMember(householdId: string, userId: string): Promise<void> {
+    if (!this.client) return;
+    const { error } = await this.client
+      .from('household_members')
+      .delete()
+      .eq('household_id', householdId)
+      .eq('user_id', userId);
+    if (error) throw error;
   }
 
   public async fetchIngredients(): Promise<Ingredient[]> {

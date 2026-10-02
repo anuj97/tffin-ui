@@ -43,6 +43,12 @@ export const routes: Routes = [
       import('./features/grocery/grocery').then(m => m.GroceryComponent)
   },
   {
+    path: 'households',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/households/household-management').then(m => m.HouseholdManagementComponent)
+  },
+  {
     path: '**',
     redirectTo: 'dashboard'
   }

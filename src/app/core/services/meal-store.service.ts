@@ -4,10 +4,12 @@ import { AuthService } from './auth.service';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
-import { Household } from '../models/household.model';
+import { Household, HouseholdMember, HouseholdInvitation, HouseholdMemberRole } from '../models/household.model';
 import { MealSchedule, MealStockStatus, MealType, ShortageReportItem } from '../models/meal-schedule.model';
 import {
   MOCK_HOUSEHOLDS,
+  MOCK_HOUSEHOLD_MEMBERS,
+  MOCK_INVITATIONS,
   MOCK_INGREDIENTS,
   MOCK_INVENTORY,
   MOCK_DISHES,
@@ -55,6 +57,8 @@ export class MealStoreService {
 
   // State Signals
   public households = signal<Household[]>([DEFAULT_HOUSEHOLD]);
+  public householdMembers = signal<HouseholdMember[]>([]);
+  public householdInvitations = signal<HouseholdInvitation[]>([]);
   public selectedHouseholdId = signal<string | null>(null); // null = "All Households"
   public ingredients = signal<Ingredient[]>([]);
   public inventory = signal<InventoryItem[]>([]);
@@ -91,6 +95,8 @@ export class MealStoreService {
 
   public loadMockData(): void {
     this.households.set([...MOCK_HOUSEHOLDS]);
+    this.householdMembers.set([...MOCK_HOUSEHOLD_MEMBERS]);
+    this.householdInvitations.set([...MOCK_INVITATIONS]);
     this.ingredients.set([...MOCK_INGREDIENTS]);
     this.inventory.set([...MOCK_INVENTORY]);
     this.dishes.set([...MOCK_DISHES]);
@@ -476,6 +482,210 @@ export class MealStoreService {
     const hh = this.householdsMap().get(id);
     if (!hh) return;
     await this.updateHousehold(id, { is_active: !hh.is_active });
+  }
+
+  // Household Members & Invitations Management
+  public async loadHouseholdMembers(householdId: string): Promise<void> {
+    if (!householdId) return;
+    if (!this.supabase.hasClient) {
+      const members = this.householdMembers().filter(m => m.household_id === householdId);
+      if (members.length === 0) {
+        // Fallback to MOCK_HOUSEHOLD_MEMBERS
+        const mockFiltered = MOCK_HOUSEHOLD_MEMBERS.filter(m => m.household_id === householdId);
+        if (mockFiltered.length > 0) {
+          this.householdMembers.update(curr => [...curr, ...mockFiltered]);
+        }
+      }
+      return;
+    }
+
+    try {
+      const members = await this.supabase.fetchHouseholdMembers(householdId);
+      this.householdMembers.set(members);
+    } catch (err: any) {
+      console.warn('Failed to load household members:', err.message);
+    }
+  }
+
+  public async loadHouseholdInvitations(householdId: string): Promise<void> {
+    if (!householdId) return;
+    if (!this.supabase.hasClient) {
+      return;
+    }
+
+    try {
+      const invs = await this.supabase.fetchHouseholdInvitations(householdId);
+      this.householdInvitations.set(invs);
+    } catch (err: any) {
+      console.warn('Failed to load household invitations:', err.message);
+    }
+  }
+
+  public async createInviteLink(
+    householdId: string,
+    role: HouseholdMemberRole = 'member',
+    email?: string,
+    validDays: number = 7
+  ): Promise<HouseholdInvitation> {
+    const hh = this.householdsMap().get(householdId);
+    const user = this.auth.currentUser();
+
+    if (!this.supabase.hasClient) {
+      const code = 'TFFN-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      const expires = new Date(Date.now() + validDays * 86400000).toISOString();
+      const newInv: HouseholdInvitation = {
+        id: 'inv-' + Date.now(),
+        household_id: householdId,
+        invited_by: user?.id,
+        invite_code: code,
+        email: email || undefined,
+        role_in_household: role,
+        status: 'pending',
+        expires_at: expires,
+        created_at: new Date().toISOString(),
+        household_name: hh?.name || 'Household'
+      };
+
+      this.householdInvitations.update(current => [newInv, ...current]);
+      this.showNotification(`Generated invite link with code: ${code}`, 'success');
+      return newInv;
+    }
+
+    try {
+      const inv = await this.supabase.createHouseholdInvitation(
+        householdId,
+        user?.id || '',
+        role,
+        email,
+        validDays
+      );
+      inv.household_name = hh?.name;
+      this.householdInvitations.update(current => [inv, ...current]);
+      this.showNotification(`Generated invite link: ${inv.invite_code}`, 'success');
+      return inv;
+    } catch (err: any) {
+      this.showNotification(`Failed to generate invite: ${err.message}`, 'error');
+      throw err;
+    }
+  }
+
+  public async revokeInvite(invitationId: string): Promise<void> {
+    if (!this.supabase.hasClient) {
+      this.householdInvitations.update(list => 
+        list.map(i => i.id === invitationId ? { ...i, status: 'revoked' as const } : i)
+      );
+      this.showNotification('Invitation revoked', 'info');
+      return;
+    }
+
+    try {
+      await this.supabase.revokeHouseholdInvitation(invitationId);
+      this.householdInvitations.update(list => 
+        list.map(i => i.id === invitationId ? { ...i, status: 'revoked' as const } : i)
+      );
+      this.showNotification('Invitation revoked', 'info');
+    } catch (err: any) {
+      this.showNotification(`Failed to revoke invitation: ${err.message}`, 'error');
+    }
+  }
+
+  public async removeMember(householdId: string, userId: string): Promise<void> {
+    const role = this.auth.currentUser()?.role;
+    if (role && !['admin', 'owner'].includes(role)) {
+      this.showNotification('Only owners or administrators can remove members.', 'error');
+      return;
+    }
+
+    if (!this.supabase.hasClient) {
+      this.householdMembers.update(list => 
+        list.filter(m => !(m.household_id === householdId && m.user_id === userId))
+      );
+      this.showNotification('Member removed from household', 'info');
+      return;
+    }
+
+    try {
+      await this.supabase.removeHouseholdMember(householdId, userId);
+      this.householdMembers.update(list => 
+        list.filter(m => !(m.household_id === householdId && m.user_id === userId))
+      );
+      this.showNotification('Member removed from household', 'info');
+    } catch (err: any) {
+      this.showNotification(`Failed to remove member: ${err.message}`, 'error');
+    }
+  }
+
+  public async acceptInviteCode(
+    code: string
+  ): Promise<{ success: boolean; message: string; household_id?: string; household_name?: string }> {
+    const cleanCode = code.trim().toUpperCase();
+    const user = this.auth.currentUser();
+
+    if (!user) {
+      return { success: false, message: 'Please sign in first to accept the invitation' };
+    }
+
+    if (!this.supabase.hasClient) {
+      const inv = this.householdInvitations().find(i => i.invite_code.toUpperCase() === cleanCode);
+      if (!inv) {
+        return { success: false, message: 'Invalid or unknown invitation code.' };
+      }
+      if (inv.status !== 'pending') {
+        return { success: false, message: `This invitation code is already ${inv.status}.` };
+      }
+
+      this.householdInvitations.update(list =>
+        list.map(i => i.id === inv.id ? { ...i, status: 'accepted' as const, accepted_by: user.id } : i)
+      );
+
+      const newMember: HouseholdMember = {
+        id: 'hm-' + Date.now(),
+        household_id: inv.household_id,
+        user_id: user.id,
+        role_in_household: inv.role_in_household,
+        username: user.username,
+        fullName: user.fullName || user.username,
+        created_at: new Date().toISOString()
+      };
+      this.householdMembers.update(m => [...m, newMember]);
+
+      const currentIds = user.household_ids || [];
+      if (!currentIds.includes(inv.household_id)) {
+        const updatedUser = { ...user, household_ids: [...currentIds, inv.household_id] };
+        this.auth.currentUser.set(updatedUser);
+        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
+      }
+
+      const hh = this.householdsMap().get(inv.household_id);
+      this.showNotification(`Successfully joined ${hh?.name || 'household'}!`, 'success');
+      return {
+        success: true,
+        message: `Successfully joined ${hh?.name || 'household'}!`,
+        household_id: inv.household_id,
+        household_name: hh?.name
+      };
+    }
+
+    try {
+      const res = await this.supabase.acceptHouseholdInvitation(cleanCode, user.id);
+      if (res.success && res.household_id) {
+        const currentIds = user.household_ids || [];
+        if (!currentIds.includes(res.household_id)) {
+          const updatedUser = { ...user, household_ids: [...currentIds, res.household_id] };
+          this.auth.currentUser.set(updatedUser);
+          localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
+        }
+        await this.loadHouseholdMembers(res.household_id);
+        this.showNotification(res.message, 'success');
+      } else {
+        this.showNotification(res.message, 'error');
+      }
+      return res;
+    } catch (err: any) {
+      const msg = err.message || 'Error processing invitation code';
+      this.showNotification(msg, 'error');
+      return { success: false, message: msg };
+    }
   }
 
   // State Mutations with Optimistic Updates
