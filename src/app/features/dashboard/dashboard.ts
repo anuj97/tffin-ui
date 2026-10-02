@@ -119,7 +119,13 @@ export class DashboardComponent {
     currentHeadcount?: number,
     currentHouseholdId?: string
   ): void {
-    const targetHhId = currentHouseholdId || this.currentHouseholdFilter() || this.activeHouseholds()[0]?.id || '';
+    const authIds = this.store.authorizedHouseholdIds();
+    let targetHhId = currentHouseholdId;
+    if (!targetHhId || !authIds.has(targetHhId)) {
+      targetHhId = this.currentHouseholdFilter() && authIds.has(this.currentHouseholdFilter()!)
+        ? this.currentHouseholdFilter()!
+        : (this.activeHouseholds()[0]?.id || '');
+    }
     const hh = this.store.householdsMap().get(targetHhId);
 
     this.selectedMealType.set(mealType);

@@ -74,30 +74,42 @@
 
     <!-- Household Switcher & Actions -->
     <div class="household-switcher-section">
-      <div class="household-select-wrapper">
-        <span class="household-label">Household:</span>
-        <select 
-          class="household-select" 
-          [value]="selectedHouseholdId() || ''" 
-          (change)="onSelectHousehold($event)">
-          <option value="">🏠 All Households</option>
-          @for (hh of activeHouseholds(); track hh.id) {
-            <option [value]="hh.id">
-              {{ hh.name }} ({{ hh.default_headcount }}p)
-            </option>
-          }
-        </select>
-      </div>
+      @if (isSingleHouseholdUser()) {
+        @if (singleHousehold(); as hh) {
+          <div class="single-household-badge" [style.border-color]="hh.color_tag || '#6366f1'" title="Active Household: {{ hh.name }}">
+            <span class="single-hh-dot" [style.background-color]="hh.color_tag || '#6366f1'"></span>
+            <span class="single-hh-name">{{ hh.name }}</span>
+            <span class="single-hh-headcount">({{ hh.default_headcount }}p)</span>
+          </div>
+        }
+      } @else {
+        <div class="household-select-wrapper">
+          <span class="household-label">Household:</span>
+          <select 
+            class="household-select" 
+            [value]="selectedHouseholdId() || ''" 
+            (change)="onSelectHousehold($event)">
+            <option value="">🏠 All Authorized</option>
+            @for (hh of authorizedHouseholds(); track hh.id) {
+              <option [value]="hh.id">
+                {{ hh.name }} ({{ hh.default_headcount }}p)
+              </option>
+            }
+          </select>
+        </div>
+      }
 
-      <button (click)="openManageModal()" class="btn-manage-hh" title="Manage households and families">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-          <circle cx="9" cy="7" r="4"></circle>
-          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-        </svg>
-        <span>Households</span>
-      </button>
+      @if (canManageHouseholds()) {
+        <button (click)="openManageModal()" class="btn-manage-hh" title="Manage households and families">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          <span>Households</span>
+        </button>
+      }
 
       <!-- Local Debug Indicator -->
       @if (isLocalDebug()) {
@@ -137,7 +149,7 @@
   </div>
 
   <!-- Household Management Modal -->
-  @if (isManageModalOpen()) {
+  @if (isManageModalOpen() && canManageHouseholds()) {
     <div class="modal-backdrop" (click)="closeManageModal()">
       <div class="modal-dialog hh-dialog" (click)="$event.stopPropagation()">
         <div class="modal-header">

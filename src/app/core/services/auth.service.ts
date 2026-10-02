@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { SupabaseService } from './supabase.service';
 import { AppUser } from '../models/user.model';
+import { MOCK_USERS } from '../mock/mock-data';
 
 const STORAGE_KEY = 'tffin_auth_user';
 const DEBUG_FLAG_KEY = 'tffin_is_debug_mode';
@@ -11,7 +12,7 @@ export const LOCAL_DEBUG_USER: AppUser = {
   username: 'debug_admin',
   fullName: 'Local Debug Admin',
   role: 'admin',
-  household_id: null
+  household_ids: [] // unrestricted
 };
 
 @Injectable({
@@ -42,13 +43,10 @@ export class AuthService {
     return null;
   }
 
-  public loginLocalDebug(role: string = 'admin'): { success: boolean } {
+  public loginLocalDebug(personaKey: string = 'admin'): { success: boolean } {
+    const matched = MOCK_USERS[personaKey] || MOCK_USERS['admin'];
     const user: AppUser = {
-      id: 'local-debug-admin-01',
-      username: 'debug_admin',
-      fullName: 'Local Debug Admin',
-      role,
-      household_id: null
+      ...matched
     };
 
     this.currentUser.set(user);
@@ -71,12 +69,21 @@ export class AuthService {
       const cleanUser = username.trim().toLowerCase();
 
       if ((cleanUser === 'admin' && password === 'admin123') || cleanUser === 'debug') {
-        return this.loginLocalDebug();
+        return this.loginLocalDebug('admin');
+      }
+      if (cleanUser === 'verma' || cleanUser === 'amit_verma') {
+        return this.loginLocalDebug('verma');
+      }
+      if (cleanUser === 'priya' || cleanUser === 'priya_patel') {
+        return this.loginLocalDebug('priya');
+      }
+      if (cleanUser === 'chef' || cleanUser === 'chef_rajesh') {
+        return this.loginLocalDebug('chef');
       }
 
       return {
         success: false,
-        error: 'Supabase credentials are not configured. Click "Sign In with Local Debug Mode" or use admin / admin123.'
+        error: 'Supabase credentials are not configured. Click one of the test persona buttons below or sign in with admin / admin123.'
       };
     }
 

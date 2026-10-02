@@ -140,25 +140,65 @@
           Sign in instantly without a Supabase connection. Fully pre-loaded with multi-household mock schedules, inventory, and dishes.
         </p>
 
-        <div class="debug-actions">
+        <div class="debug-personas-grid">
           <button 
             type="button" 
             (click)="onSignInLocalDebug('admin')" 
-            class="btn btn-secondary btn-debug-admin">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
-              <path d="M12 2a8 8 0 0 0-8 8v12h16V10a8 8 0 0 0-8-8z"></path>
-              <path d="M4 14h16"></path>
-              <path d="M12 2v4"></path>
-            </svg>
-            <span>Sign In as Debug Admin</span>
+            class="btn-persona btn-persona-admin"
+            title="Full administrative access to all households">
+            <div class="persona-top">
+              <span class="persona-icon">👑</span>
+              <span class="persona-name">Super Admin (All Households)</span>
+            </div>
+            <span class="persona-scope">Full Kitchen Admin & Multi-Household Oversight</span>
+          </button>
+
+          <button 
+            type="button" 
+            (click)="onSignInLocalDebug('verma')" 
+            class="btn-persona"
+            title="Single-household member for Verma Residence">
+            <div class="persona-top">
+              <span class="persona-icon">🏠</span>
+              <span class="persona-name">Amit Verma</span>
+            </div>
+            <span class="persona-scope">Verma Residence (HH-02 only)</span>
+          </button>
+
+          <button 
+            type="button" 
+            (click)="onSignInLocalDebug('priya')" 
+            class="btn-persona"
+            title="Single-household member for Apartment 301">
+            <div class="persona-top">
+              <span class="persona-icon">🏢</span>
+              <span class="persona-name">Priya Patel</span>
+            </div>
+            <span class="persona-scope">Apartment 301 (HH-03 only)</span>
+          </button>
+
+          <button 
+            type="button" 
+            (click)="onSignInLocalDebug('multi')" 
+            class="btn-persona"
+            title="Multi-household member for Verma + Apt 301">
+            <div class="persona-top">
+              <span class="persona-icon">🔄</span>
+              <span class="persona-name">Kiran Manager</span>
+            </div>
+            <span class="persona-scope">Verma + Apt 301 (Both)</span>
           </button>
 
           <button 
             type="button" 
             (click)="onSignInLocalDebug('chef')" 
-            class="btn btn-secondary btn-debug-chef"
-            title="Sign in with Chef permissions">
-            <span>Chef</span>
+            class="btn-persona"
+            title="Kitchen operations staff">
+            <div class="persona-top">
+              <span class="persona-icon">👨‍🍳</span>
+              <span class="persona-name">Chef Rajesh</span>
+            </div>
+            <span class="persona-scope">Kitchen Staff (All Batches)</span>
           </button>
         </div>
       </div>

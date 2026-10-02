@@ -21,7 +21,12 @@ export class NavbarComponent {
   public isLocalDebug = this.auth.isLocalDebug;
   public households = this.store.households;
   public activeHouseholds = this.store.activeHouseholds;
+  public authorizedHouseholds = this.store.authorizedHouseholds;
   public selectedHouseholdId = this.store.selectedHouseholdId;
+
+  public isSingleHouseholdUser = computed(() => this.authorizedHouseholds().length === 1);
+  public singleHousehold = computed(() => this.authorizedHouseholds()[0] || null);
+  public canManageHouseholds = computed(() => ['admin', 'owner'].includes(this.currentUser()?.role || ''));
 
   public resetMockData(): void {
     this.store.loadMockData();
@@ -55,6 +60,10 @@ export class NavbarComponent {
   }
 
   public openManageModal(): void {
+    if (!this.canManageHouseholds()) {
+      this.store.showNotification('Only administrators can manage households', 'error');
+      return;
+    }
     this.resetForm();
     this.isManageModalOpen.set(true);
   }

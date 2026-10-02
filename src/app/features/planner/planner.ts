@@ -90,7 +90,13 @@ export class PlannerComponent {
     currentHeadcount?: number,
     currentHouseholdId?: string
   ): void {
-    const targetHhId = currentHouseholdId || this.selectedHouseholdId() || this.activeHouseholds()[0]?.id || '';
+    const authIds = this.store.authorizedHouseholdIds();
+    let targetHhId = currentHouseholdId;
+    if (!targetHhId || !authIds.has(targetHhId)) {
+      targetHhId = this.selectedHouseholdId() && authIds.has(this.selectedHouseholdId()!)
+        ? this.selectedHouseholdId()!
+        : (this.activeHouseholds()[0]?.id || '');
+    }
     const hh = this.store.householdsMap().get(targetHhId);
 
     this.modalDate.set(dateStr);

@@ -100,12 +100,17 @@ export class SupabaseService {
     }
 
     const row = data[0];
+    const hhIds: string[] = Array.isArray(row.household_ids)
+      ? row.household_ids
+      : (row.household_id ? [row.household_id] : []);
+
     return {
       id: row.id,
       username: row.username,
       fullName: row.full_name || 'Kitchen Admin',
       role: row.role || 'admin',
-      household_id: row.household_id || null
+      household_id: row.household_id || null,
+      household_ids: hhIds
     };
   }
 

@@ -17,18 +17,20 @@
 
     <div class="header-actions">
       <!-- Filter by Household -->
-      <div class="filter-box">
-        <label>Household:</label>
-        <select 
-          class="form-control select-filter" 
-          [value]="currentHouseholdFilter() || ''" 
-          (change)="setFilter($event)">
-          <option value="">All Households (Overview)</option>
-          @for (hh of activeHouseholds(); track hh.id) {
-            <option [value]="hh.id">{{ hh.name }} ({{ hh.default_headcount }}p)</option>
-          }
-        </select>
-      </div>
+      @if (activeHouseholds().length > 1) {
+        <div class="filter-box">
+          <label>Household:</label>
+          <select 
+            class="form-control select-filter" 
+            [value]="currentHouseholdFilter() || ''" 
+            (change)="setFilter($event)">
+            <option value="">All Authorized (Overview)</option>
+            @for (hh of activeHouseholds(); track hh.id) {
+              <option [value]="hh.id">{{ hh.name }} ({{ hh.default_headcount }}p)</option>
+            }
+          </select>
+        </div>
+      }
 
       <a routerLink="/planner" class="btn btn-secondary">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">

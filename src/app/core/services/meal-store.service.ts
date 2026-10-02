@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { SupabaseService } from './supabase.service';
+import { AuthService } from './auth.service';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
@@ -50,6 +51,7 @@ export interface DayMealSlot {
 })
 export class MealStoreService {
   private supabase = inject(SupabaseService);
+  private auth = inject(AuthService);
 
   // State Signals
   public households = signal<Household[]>([DEFAULT_HOUSEHOLD]);
@@ -143,9 +145,52 @@ export class MealStoreService {
   }
 
   // Lookups & Computeds
+  // Authorized households that the current signed-in user is a part of
+  public authorizedHouseholds = computed(() => {
+    const user = this.auth.currentUser();
+    const all = this.households().filter(h => h.is_active);
+
+    if (!user) return all.length > 0 ? all : [DEFAULT_HOUSEHOLD];
+
+    // Explicit household_ids (multi-household membership)
+    if (user.household_ids && user.household_ids.length > 0) {
+      const allowedSet = new Set(user.household_ids);
+      const filtered = all.filter(h => allowedSet.has(h.id));
+      return filtered.length > 0 ? filtered : [];
+    }
+
+    // Single household_id assignment
+    if (user.household_id) {
+      const filtered = all.filter(h => h.id === user.household_id);
+      return filtered.length > 0 ? filtered : [];
+    }
+
+    // Unrestricted admin / kitchen staff / owner
+    if (user.role === 'admin' || user.role === 'chef' || user.role === 'owner') {
+      return all.length > 0 ? all : [DEFAULT_HOUSEHOLD];
+    }
+
+    return [];
+  });
+
+  public authorizedHouseholdIds = computed(() => {
+    return new Set(this.authorizedHouseholds().map(h => h.id));
+  });
+
   public activeHouseholds = computed(() => {
-    const list = this.households().filter(h => h.is_active);
-    return list.length > 0 ? list : [DEFAULT_HOUSEHOLD];
+    return this.authorizedHouseholds();
+  });
+
+  public effectiveHouseholdId = computed(() => {
+    const authList = this.authorizedHouseholds();
+    if (authList.length === 1) {
+      return authList[0].id;
+    }
+    const sel = this.selectedHouseholdId();
+    if (sel && this.authorizedHouseholdIds().has(sel)) {
+      return sel;
+    }
+    return null;
   });
 
   public householdsMap = computed(() => {
@@ -157,7 +202,7 @@ export class MealStoreService {
   });
 
   public selectedHousehold = computed(() => {
-    const id = this.selectedHouseholdId();
+    const id = this.effectiveHouseholdId();
     if (!id) return null;
     return this.householdsMap().get(id) || null;
   });
@@ -220,8 +265,14 @@ export class MealStoreService {
   });
 
   public getMealsForDate(dateStr: string, householdId?: string | null): DayMealSlot[] {
-    const filterHhId = householdId !== undefined ? householdId : this.selectedHouseholdId();
-    let daySchedules = this.schedules().filter(s => s.schedule_date === dateStr);
+    const filterHhId = householdId !== undefined ? householdId : this.effectiveHouseholdId();
+    const authHhIds = this.authorizedHouseholdIds();
+
+    // Enforce authorization: only show schedules for households the user is authorized to see
+    let daySchedules = this.schedules().filter(s => 
+      s.schedule_date === dateStr && authHhIds.has(s.household_id)
+    );
+
     if (filterHhId) {
       daySchedules = daySchedules.filter(s => s.household_id === filterHhId);
     }
@@ -291,7 +342,7 @@ export class MealStoreService {
     };
   }
 
-  // Smart Grocery Shortage List for upcoming N days
+  // Smart Grocery Shortage List for upcoming N days (only aggregates for authorized households)
   public calculateShortages(daysAhead: number = 4, householdId?: string | null): ShortageReportItem[] {
     const today = new Date();
     const endDate = new Date();
@@ -300,9 +351,11 @@ export class MealStoreService {
     const todayStr = today.toISOString().split('T')[0];
     const endStr = endDate.toISOString().split('T')[0];
 
-    const filterHhId = householdId !== undefined ? householdId : this.selectedHouseholdId();
+    const filterHhId = householdId !== undefined ? householdId : this.effectiveHouseholdId();
+    const authHhIds = this.authorizedHouseholdIds();
+
     let targetSchedules = this.schedules().filter(
-      s => s.schedule_date >= todayStr && s.schedule_date <= endStr
+      s => s.schedule_date >= todayStr && s.schedule_date <= endStr && authHhIds.has(s.household_id)
     );
     if (filterHhId) {
       targetSchedules = targetSchedules.filter(s => s.household_id === filterHhId);
@@ -353,6 +406,12 @@ export class MealStoreService {
   }
 
   public async createHousehold(household: Partial<Household>): Promise<Household | null> {
+    const role = this.auth.currentUser()?.role;
+    if (role && !['admin', 'owner'].includes(role)) {
+      this.showNotification('Only kitchen administrators can create households.', 'error');
+      return null;
+    }
+
     if (!this.supabase.hasClient) {
       const newHh: Household = {
         id: 'hh-' + Date.now(),
@@ -384,6 +443,12 @@ export class MealStoreService {
   }
 
   public async updateHousehold(id: string, updates: Partial<Household>): Promise<void> {
+    const role = this.auth.currentUser()?.role;
+    if (role && !['admin', 'owner'].includes(role)) {
+      this.showNotification('Only kitchen administrators can modify households.', 'error');
+      return;
+    }
+
     if (!this.supabase.hasClient) {
       const list = this.households().map(h => (h.id === id ? { ...h, ...updates } : h));
       this.households.set(list);
@@ -402,6 +467,12 @@ export class MealStoreService {
   }
 
   public async toggleHouseholdActive(id: string): Promise<void> {
+    const role = this.auth.currentUser()?.role;
+    if (role && !['admin', 'owner'].includes(role)) {
+      this.showNotification('Only kitchen administrators can activate/deactivate households.', 'error');
+      return;
+    }
+
     const hh = this.householdsMap().get(id);
     if (!hh) return;
     await this.updateHousehold(id, { is_active: !hh.is_active });
@@ -414,7 +485,12 @@ export class MealStoreService {
     delta: number,
     householdId?: string
   ): Promise<void> {
-    const effectiveHhId = householdId || this.selectedHouseholdId() || this.activeHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
+    const effectiveHhId = householdId || this.effectiveHouseholdId() || this.authorizedHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
+
+    if (!this.authorizedHouseholdIds().has(effectiveHhId)) {
+      this.showNotification('You do not have permission to modify meals for this household.', 'error');
+      return;
+    }
 
     // 1. Optimistic local update
     const current = this.schedules();
@@ -447,7 +523,13 @@ export class MealStoreService {
     headcount?: number,
     household_id?: string
   ): Promise<void> {
-    const targetHhId = household_id || this.selectedHouseholdId() || this.activeHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
+    const targetHhId = household_id || this.effectiveHouseholdId() || this.authorizedHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
+
+    if (!this.authorizedHouseholdIds().has(targetHhId)) {
+      this.showNotification('You do not have permission to plan meals for this household.', 'error');
+      return;
+    }
+
     const targetHh = this.householdsMap().get(targetHhId);
     const finalHeadcount = headcount !== undefined ? headcount : (targetHh?.default_headcount || 3);
 

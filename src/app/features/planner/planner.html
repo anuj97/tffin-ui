@@ -9,18 +9,20 @@
     <!-- Planner Controls -->
     <div class="planner-action-bar">
       <!-- Quick Household Filter -->
-      <div class="filter-pill-group">
-        <label class="filter-label">Viewing:</label>
-        <select 
-          class="form-control select-compact"
-          [value]="selectedHouseholdId() || ''" 
-          (change)="setPlannerHousehold($event)">
-          <option value="">All Households (Overview)</option>
-          @for (hh of activeHouseholds(); track hh.id) {
-            <option [value]="hh.id">{{ hh.name }} ({{ hh.default_headcount }}p)</option>
-          }
-        </select>
-      </div>
+      @if (activeHouseholds().length > 1) {
+        <div class="filter-pill-group">
+          <label class="filter-label">Viewing:</label>
+          <select 
+            class="form-control select-compact"
+            [value]="selectedHouseholdId() || ''" 
+            (change)="setPlannerHousehold($event)">
+            <option value="">All Authorized (Overview)</option>
+            @for (hh of activeHouseholds(); track hh.id) {
+              <option [value]="hh.id">{{ hh.name }} ({{ hh.default_headcount }}p)</option>
+            }
+          </select>
+        </div>
+      }
 
       <!-- Week Navigation Controls -->
       <div class="nav-controls">

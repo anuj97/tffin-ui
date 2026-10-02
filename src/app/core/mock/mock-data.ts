@@ -3,6 +3,47 @@ import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
 import { MealSchedule } from '../models/meal-schedule.model';
+import { AppUser } from '../models/user.model';
+
+export const MOCK_USERS: Record<string, AppUser> = {
+  admin: {
+    id: 'user-admin',
+    username: 'admin',
+    fullName: 'Kitchen Super Admin',
+    role: 'admin',
+    household_ids: [] // Unrestricted: can view all households
+  },
+  chef: {
+    id: 'user-chef',
+    username: 'chef_rajesh',
+    fullName: 'Chef Rajesh',
+    role: 'chef',
+    household_ids: [] // Unrestricted: kitchen prep for all
+  },
+  verma: {
+    id: 'user-verma',
+    username: 'amit_verma',
+    fullName: 'Amit Verma (Verma Residence)',
+    role: 'household_member',
+    household_id: 'mock-hh-02',
+    household_ids: ['mock-hh-02'] // Strictly Verma Residence
+  },
+  priya: {
+    id: 'user-priya',
+    username: 'priya_patel',
+    fullName: 'Priya Patel (Apt 301)',
+    role: 'household_member',
+    household_id: 'mock-hh-03',
+    household_ids: ['mock-hh-03'] // Strictly Apartment 301
+  },
+  multi: {
+    id: 'user-multi',
+    username: 'kiran_manager',
+    fullName: 'Kiran (Verma + Apt 301)',
+    role: 'household_member',
+    household_ids: ['mock-hh-02', 'mock-hh-03'] // Both households
+  }
+};
 
 export const MOCK_HOUSEHOLDS: Household[] = [
   {

@@ -1,18 +1,43 @@
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { MealStoreService, DEFAULT_HOUSEHOLD } from './meal-store.service';
+import { AuthService } from './auth.service';
 import { SupabaseService } from './supabase.service';
 import { Dish } from '../models/dish.model';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { MealSchedule } from '../models/meal-schedule.model';
+import { AppUser } from '../models/user.model';
 
-describe('MealStoreService (Multi-Household)', () => {
+describe('MealStoreService (Multi-Household & Authorization)', () => {
   let service: MealStoreService;
+  let currentUserSignal = signal<AppUser | null>({
+    id: 'admin-id',
+    username: 'admin',
+    role: 'admin',
+    fullName: 'Kitchen Super Admin',
+    household_ids: []
+  });
+
+  const mockAuthService = {
+    currentUser: currentUserSignal,
+    isLocalDebug: signal<boolean>(true),
+    isAuthenticated: () => true
+  };
 
   beforeEach(() => {
+    currentUserSignal.set({
+      id: 'admin-id',
+      username: 'admin',
+      role: 'admin',
+      fullName: 'Kitchen Super Admin',
+      household_ids: []
+    });
+
     TestBed.configureTestingModule({
       providers: [
         MealStoreService,
+        { provide: AuthService, useValue: mockAuthService },
         {
           provide: SupabaseService,
           useValue: {
@@ -38,7 +63,7 @@ describe('MealStoreService (Multi-Household)', () => {
     expect(service.schedules().length).toBeGreaterThan(0);
   });
 
-  it('should allow creating a new household in local state', async () => {
+  it('should allow admin to create a new household in local state', async () => {
     const newHh = await service.createHousehold({
       name: 'Sharma Residence',
       code: 'HH-05',
@@ -51,7 +76,7 @@ describe('MealStoreService (Multi-Household)', () => {
     expect(service.households().some(h => h.name === 'Sharma Residence')).toBeTrue();
   });
 
-  it('should compute combined and filtered shortages across multiple households', () => {
+  it('should compute combined and filtered shortages across multiple households for admin', () => {
     const testIngredient: Ingredient = {
       id: 'ing-paneer',
       name: 'Paneer',
@@ -82,20 +107,20 @@ describe('MealStoreService (Multi-Household)', () => {
 
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // Household 1 needs 3 portions = 300g
+    // Household 1 (mock-hh-01) needs 3 portions = 300g
     const scheduleHH1: MealSchedule = {
       id: 'sched-1',
-      household_id: 'hh-1',
+      household_id: 'mock-hh-01',
       schedule_date: todayStr,
       meal_type: 'lunch',
       dish_id: 'dish-paneer-butter',
       headcount: 3
     };
 
-    // Household 2 needs 2 portions = 200g
+    // Household 2 (mock-hh-02) needs 2 portions = 200g
     const scheduleHH2: MealSchedule = {
       id: 'sched-2',
-      household_id: 'hh-2',
+      household_id: 'mock-hh-02',
       schedule_date: todayStr,
       meal_type: 'lunch',
       dish_id: 'dish-paneer-butter',
@@ -107,46 +132,196 @@ describe('MealStoreService (Multi-Household)', () => {
     service.dishes.set([testDish]);
     service.schedules.set([scheduleHH1, scheduleHH2]);
 
-    // Combined requirement: 5 portions * 100g = 500g needed. On hand = 300g. Deficit = 200g.
+    // Combined requirement for admin: 5 portions * 100g = 500g needed. On hand = 300g. Deficit = 200g.
     const allShortages = service.calculateShortages(1, null);
     expect(allShortages.length).toBe(1);
     expect(allShortages[0].deficit).toBe(200);
 
     // Filtered to HH1 only: 3 portions * 100g = 300g needed. On hand = 300g. Deficit = 0.
-    const hh1Shortages = service.calculateShortages(1, 'hh-1');
+    const hh1Shortages = service.calculateShortages(1, 'mock-hh-01');
     expect(hh1Shortages.length).toBe(0);
 
     // Filtered to HH2 only: 2 portions * 100g = 200g needed. On hand = 300g. Deficit = 0.
-    const hh2Shortages = service.calculateShortages(1, 'hh-2');
+    const hh2Shortages = service.calculateShortages(1, 'mock-hh-02');
     expect(hh2Shortages.length).toBe(0);
   });
 
-  it('should group meal plans by household for a slot', () => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const schedule1: MealSchedule = {
-      id: 's1',
-      household_id: 'hh-1',
-      schedule_date: todayStr,
-      meal_type: 'lunch',
-      dish_id: 'd1',
-      headcount: 3
-    };
-    const schedule2: MealSchedule = {
-      id: 's2',
-      household_id: 'hh-2',
-      schedule_date: todayStr,
-      meal_type: 'lunch',
-      dish_id: 'd2',
-      headcount: 4
-    };
+  describe('Household Isolation & Authorization', () => {
+    it('should strictly isolate authorizedHouseholds to member assigned household', () => {
+      // Simulate login as Amit Verma (assigned only to mock-hh-02)
+      currentUserSignal.set({
+        id: 'user-verma',
+        username: 'amit_verma',
+        role: 'household_member',
+        household_id: 'mock-hh-02',
+        household_ids: ['mock-hh-02']
+      });
 
-    service.schedules.set([schedule1, schedule2]);
+      const authHouseholds = service.authorizedHouseholds();
+      expect(authHouseholds.length).toBe(1);
+      expect(authHouseholds[0].id).toBe('mock-hh-02');
+      expect(authHouseholds[0].name).toBe('Verma Residence');
+      expect(service.effectiveHouseholdId()).toBe('mock-hh-02');
+    });
 
-    const meals = service.getMealsForDate(todayStr, null);
-    const lunchSlot = meals.find(m => m.mealType === 'lunch');
+    it('should exclude other households schedules from getMealsForDate for single-household member', () => {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const scheduleHH1: MealSchedule = {
+        id: 's-hh1',
+        household_id: 'mock-hh-01',
+        schedule_date: todayStr,
+        meal_type: 'lunch',
+        dish_id: 'dish-1',
+        headcount: 3
+      };
+      const scheduleHH2: MealSchedule = {
+        id: 's-hh2',
+        household_id: 'mock-hh-02',
+        schedule_date: todayStr,
+        meal_type: 'lunch',
+        dish_id: 'dish-2',
+        headcount: 4
+      };
 
-    expect(lunchSlot).toBeTruthy();
-    expect(lunchSlot?.householdPlans.length).toBe(2);
-    expect(lunchSlot?.totalHeadcount).toBe(7);
+      service.schedules.set([scheduleHH1, scheduleHH2]);
+
+      // Switch to Verma user
+      currentUserSignal.set({
+        id: 'user-verma',
+        username: 'amit_verma',
+        role: 'household_member',
+        household_ids: ['mock-hh-02']
+      });
+
+      const meals = service.getMealsForDate(todayStr);
+      const lunchSlot = meals.find(m => m.mealType === 'lunch');
+
+      expect(lunchSlot).toBeTruthy();
+      // Should ONLY contain Verma Residence schedule, HH-01 must not leak!
+      expect(lunchSlot?.householdPlans.length).toBe(1);
+      expect(lunchSlot?.householdPlans[0].schedule.household_id).toBe('mock-hh-02');
+      expect(lunchSlot?.totalHeadcount).toBe(4);
+    });
+
+    it('should exclude non-authorized household demands from shortage calculations', () => {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const testIngredient: Ingredient = {
+        id: 'ing-atta',
+        name: 'Whole Wheat Atta',
+        category: 'staples',
+        unit: 'g'
+      };
+
+      const testDish: Dish = {
+        id: 'dish-roti',
+        name: 'Phulka Roti',
+        recipe_ingredients: [
+          {
+            id: 'ri-roti',
+            dish_id: 'dish-roti',
+            ingredient_id: 'ing-atta',
+            qty_per_person: 60
+          }
+        ]
+      };
+
+      // 100g on hand
+      const testInventory: InventoryItem = {
+        id: 'inv-atta',
+        ingredient_id: 'ing-atta',
+        quantity: 100,
+        min_threshold: 50,
+        updated_at: new Date().toISOString()
+      };
+
+      // HH-01 has a big demand: 10 people = 600g (would cause deficit of 500g)
+      const scheduleHH1: MealSchedule = {
+        id: 's-hh1-dinner',
+        household_id: 'mock-hh-01',
+        schedule_date: todayStr,
+        meal_type: 'dinner',
+        dish_id: 'dish-roti',
+        headcount: 10
+      };
+
+      // HH-02 has 1 person = 60g (no deficit because 100g on hand)
+      const scheduleHH2: MealSchedule = {
+        id: 's-hh2-dinner',
+        household_id: 'mock-hh-02',
+        schedule_date: todayStr,
+        meal_type: 'dinner',
+        dish_id: 'dish-roti',
+        headcount: 1
+      };
+
+      service.ingredients.set([testIngredient]);
+      service.inventory.set([testInventory]);
+      service.dishes.set([testDish]);
+      service.schedules.set([scheduleHH1, scheduleHH2]);
+
+      // Verma user logged in
+      currentUserSignal.set({
+        id: 'user-verma',
+        username: 'amit_verma',
+        role: 'household_member',
+        household_ids: ['mock-hh-02']
+      });
+
+      // Deficit should be 0 because HH-01's 600g demand is NOT visible or calculated for HH-02!
+      const shortages = service.calculateShortages(1, null);
+      expect(shortages.length).toBe(0);
+    });
+
+    it('should reject headcount adjustments and meal scheduling for unauthorized households', async () => {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const initialSchedules: MealSchedule[] = [
+        {
+          id: 's-hh1',
+          household_id: 'mock-hh-01',
+          schedule_date: todayStr,
+          meal_type: 'lunch',
+          dish_id: 'dish-1',
+          headcount: 3
+        }
+      ];
+      service.schedules.set(initialSchedules);
+
+      // Verma user logged in
+      currentUserSignal.set({
+        id: 'user-verma',
+        username: 'amit_verma',
+        role: 'household_member',
+        household_ids: ['mock-hh-02']
+      });
+
+      // Attempt to modify HH-01 headcount
+      await service.adjustHeadcount(todayStr, 'lunch', 2, 'mock-hh-01');
+
+      // Schedule for HH-01 must remain unchanged
+      expect(service.schedules()[0].headcount).toBe(3);
+      expect(service.notification()?.type).toBe('error');
+
+      // Attempt to set meal for HH-01
+      await service.setMealSchedule(todayStr, 'dinner', 'dish-1', 4, 'mock-hh-01');
+      const dinnerSched = service.schedules().find(s => s.meal_type === 'dinner' && s.household_id === 'mock-hh-01');
+      expect(dinnerSched).toBeUndefined();
+    });
+
+    it('should support multi-household membership (e.g. manager of two households)', () => {
+      // Kiran belongs to both mock-hh-02 and mock-hh-03
+      currentUserSignal.set({
+        id: 'user-multi',
+        username: 'kiran_manager',
+        role: 'household_member',
+        household_ids: ['mock-hh-02', 'mock-hh-03']
+      });
+
+      const authHouseholds = service.authorizedHouseholds();
+      expect(authHouseholds.length).toBe(2);
+      const authIds = authHouseholds.map(h => h.id);
+      expect(authIds).toContain('mock-hh-02');
+      expect(authIds).toContain('mock-hh-03');
+      expect(authIds).not.toContain('mock-hh-01');
+    });
   });
 });

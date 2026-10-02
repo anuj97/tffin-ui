@@ -302,41 +302,67 @@
     margin: 0;
   }
 
-  .debug-actions {
-    display: flex;
+  .debug-personas-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
     gap: 0.5rem;
-    margin-top: 0.25rem;
+    margin-top: 0.35rem;
 
-    .btn-debug-admin {
-      flex: 1;
+    .btn-persona {
       display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.5rem;
-      background: rgba(245, 158, 11, 0.12);
-      border-color: rgba(245, 158, 11, 0.4);
-      color: #fbbf24;
-      font-size: 0.825rem;
-      font-weight: 600;
-      padding: 0.55rem 0.85rem;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.2rem;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-medium);
+      border-radius: var(--radius-sm);
+      padding: 0.5rem 0.65rem;
+      color: var(--text-primary);
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s;
 
       &:hover {
-        background: var(--primary);
-        color: #0b0f19;
+        background: rgba(255, 255, 255, 0.08);
+        border-color: var(--primary);
+        transform: translateY(-1px);
       }
-    }
 
-    .btn-debug-chef {
-      padding: 0.55rem 0.85rem;
-      font-size: 0.825rem;
-      font-weight: 600;
-      background: rgba(255, 255, 255, 0.05);
-      border-color: var(--border-medium);
-      color: var(--text-secondary);
+      .persona-top {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.775rem;
+        font-weight: 600;
+      }
 
-      &:hover {
-        background: rgba(255, 255, 255, 0.1);
+      .persona-icon {
+        font-size: 0.85rem;
+      }
+
+      .persona-name {
         color: var(--text-primary);
+      }
+
+      .persona-scope {
+        font-size: 0.65rem;
+        color: var(--text-muted);
+        line-height: 1.1;
+      }
+
+      &.btn-persona-admin {
+        grid-column: span 2;
+        background: rgba(245, 158, 11, 0.12);
+        border-color: rgba(245, 158, 11, 0.35);
+
+        .persona-name {
+          color: #fbbf24;
+        }
+
+        &:hover {
+          background: rgba(245, 158, 11, 0.2);
+          border-color: var(--primary);
+        }
       }
     }
   }

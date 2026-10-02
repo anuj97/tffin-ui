@@ -35,18 +35,20 @@
           class="btn-horizon">Full Week (7 Days)</button>
       </div>
 
-      <div class="hh-filter-inline">
-        <span class="label">Household:</span>
-        <select 
-          class="form-control select-compact"
-          [value]="selectedHouseholdFilter()" 
-          (change)="setHouseholdFilter($event)">
-          <option value="">All Households (Combined Kitchen)</option>
-          @for (hh of activeHouseholds(); track hh.id) {
-            <option [value]="hh.id">{{ hh.name }} ({{ hh.default_headcount }}p)</option>
-          }
-        </select>
-      </div>
+      @if (activeHouseholds().length > 1) {
+        <div class="hh-filter-inline">
+          <span class="label">Household:</span>
+          <select 
+            class="form-control select-compact"
+            [value]="selectedHouseholdFilter()" 
+            (change)="setHouseholdFilter($event)">
+            <option value="">All Authorized (Combined Kitchen)</option>
+            @for (hh of activeHouseholds(); track hh.id) {
+              <option [value]="hh.id">{{ hh.name }} ({{ hh.default_headcount }}p)</option>
+            }
+          </select>
+        </div>
+      }
     </div>
 
     <div class="summary-pill">

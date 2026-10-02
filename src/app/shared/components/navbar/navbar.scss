@@ -322,6 +322,35 @@
   }
 }
 
+.single-household-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-medium);
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-md);
+
+  .single-hh-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .single-hh-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .single-hh-headcount {
+    font-size: 0.725rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+}
+
 .btn-manage-hh {
   display: flex;
   align-items: center;
