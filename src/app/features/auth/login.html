@@ -123,6 +123,45 @@
         </button>
       </form>
 
+      <!-- Local Debug Mode Section -->
+      <div class="auth-divider">
+        <span>OR</span>
+      </div>
+
+      <div class="debug-mode-card">
+        <div class="debug-header">
+          <div class="debug-badge">
+            <span class="pulse-icon">⚡</span>
+            <span>Local Debug Mode</span>
+          </div>
+          <span class="offline-tag">Offline / No Supabase</span>
+        </div>
+        <p class="debug-desc">
+          Sign in instantly without a Supabase connection. Fully pre-loaded with multi-household mock schedules, inventory, and dishes.
+        </p>
+
+        <div class="debug-actions">
+          <button 
+            type="button" 
+            (click)="onSignInLocalDebug('admin')" 
+            class="btn btn-secondary btn-debug-admin">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+              <path d="M12 2a8 8 0 0 0-8 8v12h16V10a8 8 0 0 0-8-8z"></path>
+              <path d="M4 14h16"></path>
+              <path d="M12 2v4"></path>
+            </svg>
+            <span>Sign In as Debug Admin</span>
+          </button>
+
+          <button 
+            type="button" 
+            (click)="onSignInLocalDebug('chef')" 
+            class="btn btn-secondary btn-debug-chef"
+            title="Sign in with Chef permissions">
+            <span>Chef</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </div>

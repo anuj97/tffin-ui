@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
+import { SupabaseService } from '../../core/services/supabase.service';
 
 @Component({
   selector: 'app-login',
@@ -13,6 +14,7 @@ import { AuthService } from '../../core/services/auth.service';
 })
 export class LoginComponent {
   public auth = inject(AuthService);
+  public supabase = inject(SupabaseService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
 
@@ -49,6 +51,12 @@ export class LoginComponent {
     } else {
       this.errorMessage.set(res.error || 'Authentication failed. Please verify credentials.');
     }
+  }
+
+  public onSignInLocalDebug(role: string = 'admin'): void {
+    this.auth.loginLocalDebug(role);
+    const returnUrl = this.route.snapshot.queryParams['returnUrl'] || '/dashboard';
+    this.router.navigateByUrl(returnUrl);
   }
 
   public togglePasswordVisibility(): void {

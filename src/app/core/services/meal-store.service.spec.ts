@@ -29,10 +29,13 @@ describe('MealStoreService (Multi-Household)', () => {
     service = TestBed.inject(MealStoreService);
   });
 
-  it('should initialize with default household', () => {
+  it('should initialize with mock data when offline or in debug mode', () => {
     expect(service.households().length).toBeGreaterThan(0);
-    expect(service.households()[0].name).toBe(DEFAULT_HOUSEHOLD.name);
+    expect(service.households()[0].name).toBe('Main Household');
     expect(service.selectedHouseholdId()).toBeNull(); // defaults to All Households
+    expect(service.ingredients().length).toBeGreaterThan(0);
+    expect(service.dishes().length).toBeGreaterThan(0);
+    expect(service.schedules().length).toBeGreaterThan(0);
   });
 
   it('should allow creating a new household in local state', async () => {

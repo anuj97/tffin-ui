@@ -238,3 +238,107 @@
   }
 }
 
+/* Local Debug Mode Styling */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  margin: 1.5rem 0 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  span {
+    padding: 0 0.75rem;
+  }
+}
+
+.debug-mode-card {
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px dashed rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+
+  .debug-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    .debug-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .offline-tag {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #94a3b8;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+    }
+  }
+
+  .debug-desc {
+    font-size: 0.775rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  .debug-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+
+    .btn-debug-admin {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.4);
+      color: #fbbf24;
+      font-size: 0.825rem;
+      font-weight: 600;
+      padding: 0.55rem 0.85rem;
+
+      &:hover {
+        background: var(--primary);
+        color: #0b0f19;
+      }
+    }
+
+    .btn-debug-chef {
+      padding: 0.55rem 0.85rem;
+      font-size: 0.825rem;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border-medium);
+      color: var(--text-secondary);
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--text-primary);
+      }
+    }
+  }
+}
+

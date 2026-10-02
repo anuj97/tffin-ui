@@ -18,9 +18,15 @@ export class NavbarComponent {
   public auth = inject(AuthService);
 
   public currentUser = this.auth.currentUser;
+  public isLocalDebug = this.auth.isLocalDebug;
   public households = this.store.households;
   public activeHouseholds = this.store.activeHouseholds;
   public selectedHouseholdId = this.store.selectedHouseholdId;
+
+  public resetMockData(): void {
+    this.store.loadMockData();
+    this.store.showNotification('Mock data reset to initial state', 'info');
+  }
 
   // Household Manager Modal State
   public isManageModalOpen = signal<boolean>(false);
