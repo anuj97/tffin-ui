@@ -135,6 +135,12 @@ export class NavbarComponent {
     await this.store.toggleHouseholdActive(id);
   }
 
+  public async confirmDelete(id: string, name: string): Promise<void> {
+    if (confirm(`Are you sure you want to permanently delete the household "${name}"?\nAll associated meal plans and invitations will be removed.`)) {
+      await this.store.deleteHousehold(id);
+    }
+  }
+
   public onLogout(): void {
     this.auth.logout();
   }

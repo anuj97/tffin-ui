@@ -151,6 +151,15 @@ export class SupabaseService {
     return data;
   }
 
+  public async deleteHousehold(id: string): Promise<void> {
+    if (!this.client) return;
+    const { error } = await this.client
+      .from('households')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  }
+
   // Household Members & Invitations
   public async fetchHouseholdMembers(householdId: string): Promise<HouseholdMember[]> {
     if (!this.client) return [];

@@ -79,6 +79,7 @@ describe('HouseholdManagementComponent', () => {
     }),
     setSelectedHousehold: jasmine.createSpy('setSelectedHousehold'),
     updateHousehold: jasmine.createSpy('updateHousehold'),
+    deleteHousehold: jasmine.createSpy('deleteHousehold').and.resolveTo(true),
     showNotification: jasmine.createSpy('showNotification')
   };
 
@@ -135,5 +136,23 @@ describe('HouseholdManagementComponent', () => {
 
     expect(mockStore.acceptInviteCode).toHaveBeenCalledWith('TFFN-TEST01');
     expect(component.isJoinModalOpen()).toBeFalse();
+  });
+
+  it('should open and close the delete confirmation modal', () => {
+    expect(component.isDeleteModalOpen()).toBeFalse();
+    component.openDeleteModal();
+    expect(component.isDeleteModalOpen()).toBeTrue();
+    component.closeDeleteModal();
+    expect(component.isDeleteModalOpen()).toBeFalse();
+  });
+
+  it('should call store.deleteHousehold and close modal when confirmed', async () => {
+    component.openDeleteModal();
+    expect(component.isDeleteModalOpen()).toBeTrue();
+
+    await component.confirmDeleteHousehold();
+
+    expect(mockStore.deleteHousehold).toHaveBeenCalledWith('mock-hh-02');
+    expect(component.isDeleteModalOpen()).toBeFalse();
   });
 });

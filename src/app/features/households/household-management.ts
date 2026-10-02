@@ -85,6 +85,10 @@ export class HouseholdManagementComponent implements OnInit {
   public editDietaryNotes = signal<string>('');
   public editColorTag = signal<string>('#6366f1');
 
+  // Delete Household Modal State
+  public isDeleteModalOpen = signal<boolean>(false);
+  public isDeleting = signal<boolean>(false);
+
   public ngOnInit(): void {
     // Initial household selection
     const initialHhId = this.store.effectiveHouseholdId() || this.activeHouseholds()[0]?.id || '';
@@ -249,5 +253,39 @@ export class HouseholdManagementComponent implements OnInit {
     });
 
     this.closeEditModal();
+  }
+
+  // Delete Household
+  public openDeleteModal(): void {
+    this.isDeleteModalOpen.set(true);
+  }
+
+  public closeDeleteModal(): void {
+    this.isDeleteModalOpen.set(false);
+  }
+
+  public async confirmDeleteHousehold(): Promise<void> {
+    const hh = this.currentHousehold();
+    if (!hh) return;
+
+    this.isDeleting.set(true);
+    try {
+      const success = await this.store.deleteHousehold(hh.id);
+      if (success) {
+        this.closeDeleteModal();
+        if (this.isEditModalOpen()) {
+          this.closeEditModal();
+        }
+        const remaining = this.activeHouseholds().filter(h => h.id !== hh.id);
+        if (remaining.length > 0) {
+          this.selectHousehold(remaining[0].id);
+        } else {
+          this.selectedHouseholdId.set('');
+          this.router.navigate(['/dashboard']);
+        }
+      }
+    } finally {
+      this.isDeleting.set(false);
+    }
   }
 }

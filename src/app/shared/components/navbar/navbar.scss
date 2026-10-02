@@ -533,6 +533,25 @@
     }
   }
 
+  .btn-delete-mini {
+    background: transparent;
+    border: 1px solid rgba(244, 63, 94, 0.25);
+    color: var(--rose);
+    padding: 0.2rem 0.45rem;
+    border-radius: var(--radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+
+    &:hover {
+      background: var(--rose-subtle);
+      border-color: var(--rose);
+      color: #fff;
+    }
+  }
+
   .hh-dietary {
     margin-top: 0.4rem;
     font-size: 0.75rem;

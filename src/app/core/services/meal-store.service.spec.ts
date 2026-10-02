@@ -323,5 +323,61 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       expect(authIds).toContain('mock-hh-03');
       expect(authIds).not.toContain('mock-hh-01');
     });
+
+    it('should allow admin to delete household and cascade remove associated data', async () => {
+      // Create a test household
+      const created = await service.createHousehold({
+        name: 'Temporary Household',
+        code: 'TEMP-01',
+        default_headcount: 2
+      });
+      const hhId = created.id;
+
+      // Add a schedule for it
+      service.schedules.update(list => [
+        ...list,
+        {
+          id: 'temp-sched-1',
+          schedule_date: '2026-10-02',
+          meal_type: 'lunch',
+          dish_id: 'dish-1',
+          headcount: 2,
+          household_id: hhId
+        }
+      ]);
+
+      service.selectedHouseholdId.set(hhId);
+
+      const success = await service.deleteHousehold(hhId);
+      expect(success).toBeTrue();
+      expect(service.households().some(h => h.id === hhId)).toBeFalse();
+      expect(service.schedules().some(s => s.household_id === hhId)).toBeFalse();
+      expect(service.selectedHouseholdId()).toBeNull();
+    });
+
+    it('should reject household deletion by non-owner member', async () => {
+      currentUserSignal.set({
+        id: 'user-regular',
+        username: 'regular_member',
+        role: 'household_member',
+        household_ids: ['mock-hh-02']
+      });
+
+      // Clear any owner membership
+      service.householdMembers.set([
+        {
+          id: 'hm-reg',
+          household_id: 'mock-hh-02',
+          user_id: 'user-regular',
+          role_in_household: 'member',
+          username: 'regular_member'
+        }
+      ]);
+
+      const success = await service.deleteHousehold('mock-hh-02');
+      expect(success).toBeFalse();
+      expect(service.households().some(h => h.id === 'mock-hh-02')).toBeTrue();
+      expect(service.notification()?.type).toBe('error');
+    });
   });
 });

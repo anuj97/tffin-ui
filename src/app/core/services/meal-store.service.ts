@@ -484,6 +484,74 @@ export class MealStoreService {
     await this.updateHousehold(id, { is_active: !hh.is_active });
   }
 
+  public async deleteHousehold(id: string): Promise<boolean> {
+    const user = this.auth.currentUser();
+    const role = user?.role;
+    const isHouseholdOwner = this.householdMembers().some(
+      m => m.household_id === id && m.user_id === user?.id && m.role_in_household === 'owner'
+    );
+
+    if (!['admin', 'owner'].includes(role || '') && !isHouseholdOwner) {
+      this.showNotification('Only administrators or household owners can delete a household.', 'error');
+      return false;
+    }
+
+    const hh = this.householdsMap().get(id);
+    const hhName = hh?.name || 'Household';
+
+    if (!this.supabase.hasClient) {
+      // 1. Remove household
+      this.households.update(list => list.filter(h => h.id !== id));
+      // 2. Cascade remove members
+      this.householdMembers.update(list => list.filter(m => m.household_id !== id));
+      // 3. Cascade remove invitations
+      this.householdInvitations.update(list => list.filter(i => i.household_id !== id));
+      // 4. Cascade remove meal schedules
+      this.schedules.update(list => list.filter(s => s.household_id !== id));
+
+      // 5. Update user's household_ids if current user was part of it
+      if (user?.household_ids?.includes(id)) {
+        const updatedIds = user.household_ids.filter(x => x !== id);
+        const updatedUser = { ...user, household_ids: updatedIds };
+        this.auth.currentUser.set(updatedUser);
+        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
+      }
+
+      // 6. Reset selected household if it was the deleted one
+      if (this.selectedHouseholdId() === id) {
+        this.selectedHouseholdId.set(null);
+      }
+
+      this.showNotification(`Deleted household: ${hhName}`, 'success');
+      return true;
+    }
+
+    try {
+      await this.supabase.deleteHousehold(id);
+      this.households.update(list => list.filter(h => h.id !== id));
+      this.householdMembers.update(list => list.filter(m => m.household_id !== id));
+      this.householdInvitations.update(list => list.filter(i => i.household_id !== id));
+      this.schedules.update(list => list.filter(s => s.household_id !== id));
+
+      if (user?.household_ids?.includes(id)) {
+        const updatedIds = user.household_ids.filter(x => x !== id);
+        const updatedUser = { ...user, household_ids: updatedIds };
+        this.auth.currentUser.set(updatedUser);
+        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
+      }
+
+      if (this.selectedHouseholdId() === id) {
+        this.selectedHouseholdId.set(null);
+      }
+
+      this.showNotification(`Deleted household: ${hhName}`, 'success');
+      return true;
+    } catch (err: any) {
+      this.showNotification(`Failed to delete household: ${err.message}`, 'error');
+      return false;
+    }
+  }
+
   // Household Members & Invitations Management
   public async loadHouseholdMembers(householdId: string): Promise<void> {
     if (!householdId) return;
