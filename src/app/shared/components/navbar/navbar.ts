@@ -1,7 +1,8 @@
-import { Component, computed, inject, signal } from '@angular/core';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { Component, computed, HostListener, inject, signal } from '@angular/core';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { filter } from 'rxjs/operators';
 import { MealStoreService } from '../../../core/services/meal-store.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Household } from '../../../core/models/household.model';
@@ -16,6 +17,37 @@ import { Household } from '../../../core/models/household.model';
 export class NavbarComponent {
   public store = inject(MealStoreService);
   public auth = inject(AuthService);
+  private router = inject(Router);
+
+  // Drawer / Sidebar State
+  public isSidebarOpen = signal<boolean>(false);
+
+  constructor() {
+    this.router.events
+      .pipe(filter(event => event instanceof NavigationEnd))
+      .subscribe(() => {
+        this.closeSidebar();
+      });
+  }
+
+  public toggleSidebar(): void {
+    this.isSidebarOpen.update(open => !open);
+  }
+
+  public openSidebar(): void {
+    this.isSidebarOpen.set(true);
+  }
+
+  public closeSidebar(): void {
+    this.isSidebarOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  public onEscape(): void {
+    if (this.isSidebarOpen()) {
+      this.closeSidebar();
+    }
+  }
 
   public currentUser = this.auth.currentUser;
   public isLocalDebug = this.auth.isLocalDebug;
