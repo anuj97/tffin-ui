@@ -104,9 +104,15 @@ export class SupabaseService {
         .select('household_id')
         .eq('user_id', userId);
 
-      const hhIds: string[] = (memberRows && memberRows.length > 0)
+      const memberHhIds: string[] = (memberRows && memberRows.length > 0)
         ? memberRows.map((m: any) => m.household_id)
-        : (userRow.household_id ? [userRow.household_id] : []);
+        : [];
+
+      const combinedSet = new Set<string>(memberHhIds);
+      if (userRow.household_id) {
+        combinedSet.add(userRow.household_id);
+      }
+      const hhIds = Array.from(combinedSet);
 
       return {
         id: userRow.id,
@@ -245,8 +251,23 @@ export class SupabaseService {
   }
 
   // Database Access Methods
-  public async fetchHouseholds(): Promise<Household[]> {
+  public async fetchHouseholds(userId?: string): Promise<Household[]> {
     if (!this.client) return [];
+
+    // 1. Try get_authorized_households RPC first (SECURITY DEFINER)
+    try {
+      const { data: rpcData, error: rpcError } = await this.client.rpc('get_authorized_households', {
+        p_user_id: userId || null
+      });
+
+      if (!rpcError && rpcData && Array.isArray(rpcData) && rpcData.length > 0) {
+        return rpcData as Household[];
+      }
+    } catch (e) {
+      // Fallback to direct select
+    }
+
+    // 2. Direct table select fallback
     const { data, error } = await this.client
       .from('households')
       .select('*')
@@ -338,6 +359,30 @@ export class SupabaseService {
   // Household Members & Invitations
   public async fetchHouseholdMembers(householdId: string): Promise<HouseholdMember[]> {
     if (!this.client) return [];
+
+    // 1. Try get_household_members RPC first (SECURITY DEFINER)
+    try {
+      const { data: rpcData, error: rpcError } = await this.client.rpc('get_household_members', {
+        p_household_id: householdId
+      });
+
+      if (!rpcError && rpcData && Array.isArray(rpcData)) {
+        return rpcData.map((row: any) => ({
+          id: row.id,
+          household_id: row.household_id,
+          user_id: row.user_id,
+          role_in_household: row.role_in_household || 'member',
+          created_at: row.created_at,
+          username: row.username || 'member',
+          fullName: row.full_name || row.username || 'Member',
+          email: row.email
+        }));
+      }
+    } catch (e) {
+      // Fallback to direct table query
+    }
+
+    // 2. Direct table query fallback
     const { data, error } = await this.client
       .from('household_members')
       .select(`

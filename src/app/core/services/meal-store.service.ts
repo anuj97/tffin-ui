@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { SupabaseService } from './supabase.service';
 import { AuthService } from './auth.service';
 import { Ingredient } from '../models/ingredient.model';
@@ -71,6 +71,18 @@ export class MealStoreService {
 
   constructor() {
     this.init();
+
+    // Automatically synchronize Supabase store when authenticated user changes or resolves
+    effect(() => {
+      const user = this.auth.currentUser();
+      if (this.supabase.hasClient && user) {
+        untracked(() => {
+          this.loadFromSupabase().catch(err => {
+            console.warn('Failed to re-sync store for user:', err);
+          });
+        });
+      }
+    });
   }
 
   public async init(): Promise<void> {
@@ -116,8 +128,9 @@ export class MealStoreService {
   public async loadFromSupabase(): Promise<void> {
     try {
       this.lastError.set(null);
+      const userId = this.auth.currentUser()?.id;
       const [hhs, ings, invs, dshs] = await Promise.all([
-        this.supabase.fetchHouseholds(),
+        this.supabase.fetchHouseholds(userId),
         this.supabase.fetchIngredients(),
         this.supabase.fetchInventory(),
         this.supabase.fetchDishes()
@@ -158,22 +171,38 @@ export class MealStoreService {
 
     if (!user) return all.length > 0 ? all : [DEFAULT_HOUSEHOLD];
 
-    // Explicit household_ids (multi-household membership)
-    if (user.household_ids && user.household_ids.length > 0) {
-      const allowedSet = new Set(user.household_ids);
-      const filtered = all.filter(h => allowedSet.has(h.id));
-      return filtered.length > 0 ? filtered : [];
-    }
-
-    // Single household_id assignment
-    if (user.household_id) {
-      const filtered = all.filter(h => h.id === user.household_id);
-      return filtered.length > 0 ? filtered : [];
-    }
-
-    // Unrestricted admin / kitchen staff / owner
-    if (user.role === 'admin' || user.role === 'chef' || user.role === 'owner') {
+    // Unrestricted admin / kitchen staff can view all households
+    if (user.role === 'admin' || user.role === 'chef') {
       return all.length > 0 ? all : [DEFAULT_HOUSEHOLD];
+    }
+
+    // Collect all permitted household IDs from:
+    // 1. user.household_ids array
+    // 2. user.household_id string
+    // 3. householdMembers signal where user_id matches
+    const allowedIds = new Set<string>();
+    if (user.household_ids && user.household_ids.length > 0) {
+      user.household_ids.forEach(id => allowedIds.add(id));
+    }
+    if (user.household_id) {
+      allowedIds.add(user.household_id);
+    }
+    for (const m of this.householdMembers()) {
+      if (m.user_id === user.id) {
+        allowedIds.add(m.household_id);
+      }
+    }
+
+    if (allowedIds.size > 0) {
+      const filtered = all.filter(h => allowedIds.has(h.id));
+      if (filtered.length > 0) {
+        return filtered;
+      }
+    }
+
+    // Fallback: If user role is owner and no specific ID is mapped, allow all active
+    if (user.role === 'owner') {
+      return all;
     }
 
     return [];
@@ -802,6 +831,7 @@ export class MealStoreService {
           this.auth.currentUser.set(updatedUser);
           localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
         }
+        await this.loadFromSupabase();
         await this.loadHouseholdMembers(res.household_id);
         this.showNotification(res.message, 'success');
       } else {

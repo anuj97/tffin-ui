@@ -63,11 +63,6 @@ export class AuthService {
             return;
           }
 
-          // If current user is already hydrated with this ID, avoid duplicate fetch
-          if (this.currentUser()?.id === session.user.id) {
-            return;
-          }
-
           this.isAuthenticating.set(true);
           try {
             const userProfile = await this.supabase.ensureOAuthAppUser({
@@ -100,6 +95,22 @@ export class AuthService {
         }
       }
     });
+  }
+
+  public async refreshCurrentUser(): Promise<AppUser | null> {
+    const user = this.currentUser();
+    if (!user || !this.supabase.clientInstance) return user;
+    try {
+      const refreshed = await this.supabase.fetchAppUserById(user.id);
+      if (refreshed) {
+        this.currentUser.set(refreshed);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(refreshed));
+        return refreshed;
+      }
+    } catch (e) {
+      console.warn('Failed to refresh user profile:', e);
+    }
+    return user;
   }
 
   public loginLocalDebug(personaKey: string = 'admin'): { success: boolean } {
