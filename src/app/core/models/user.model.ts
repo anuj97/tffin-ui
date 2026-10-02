@@ -5,4 +5,6 @@ export interface AppUser {
   role: string;
   household_id?: string | null;
   household_ids?: string[];
+  email?: string;
+  avatar_url?: string;
 }

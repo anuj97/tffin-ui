@@ -36,8 +36,9 @@ export class SupabaseService {
       try {
         this.client = createClient(current.url, current.key, {
           auth: {
-            persistSession: false,
-            autoRefreshToken: false
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true
           }
         });
         this.testConnection();
@@ -78,6 +79,135 @@ export class SupabaseService {
 
   public get hasClient(): boolean {
     return !!this.client;
+  }
+
+  public get clientInstance(): SupabaseClient | null {
+    return this.client;
+  }
+
+  public async fetchAppUserById(userId: string): Promise<AppUser | null> {
+    if (!this.client) return null;
+
+    try {
+      const { data: userRow, error } = await this.client
+        .from('app_users')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error || !userRow) {
+        return null;
+      }
+
+      const { data: memberRows } = await this.client
+        .from('household_members')
+        .select('household_id')
+        .eq('user_id', userId);
+
+      const hhIds: string[] = (memberRows && memberRows.length > 0)
+        ? memberRows.map((m: any) => m.household_id)
+        : (userRow.household_id ? [userRow.household_id] : []);
+
+      return {
+        id: userRow.id,
+        username: userRow.username,
+        email: userRow.email || undefined,
+        fullName: userRow.full_name || 'Kitchen User',
+        role: userRow.role || 'household_member',
+        household_id: userRow.household_id || (hhIds.length > 0 ? hhIds[0] : null),
+        household_ids: hhIds,
+        avatar_url: userRow.avatar_url || undefined
+      };
+    } catch (e) {
+      console.warn('Error fetching app user by ID:', e);
+      return null;
+    }
+  }
+
+  public async ensureOAuthAppUser(authUser: {
+    id: string;
+    email?: string;
+    user_metadata?: any;
+  }): Promise<AppUser | null> {
+    if (!this.client) return null;
+
+    // Check if user already exists in app_users
+    const existing = await this.fetchAppUserById(authUser.id);
+    if (existing) {
+      return existing;
+    }
+
+    const emailName = authUser.email ? authUser.email.split('@')[0] : 'user';
+    const fullName =
+      authUser.user_metadata?.['full_name'] ||
+      authUser.user_metadata?.['name'] ||
+      emailName;
+    const avatarUrl =
+      authUser.user_metadata?.['avatar_url'] ||
+      authUser.user_metadata?.['picture'] ||
+      null;
+    const baseUsername = (authUser.user_metadata?.['user_name'] || emailName)
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '');
+    const username = `${baseUsername || 'user'}_${authUser.id.slice(0, 4)}`;
+
+    // Try finding a default household
+    const households = await this.fetchHouseholds();
+    const defaultHhId = households.length > 0 ? households[0].id : null;
+
+    try {
+      const { data, error } = await this.client
+        .from('app_users')
+        .upsert(
+          {
+            id: authUser.id,
+            username: username,
+            email: authUser.email || null,
+            password_hash: 'oauth_managed',
+            full_name: fullName,
+            role: 'household_member',
+            household_id: defaultHhId,
+            avatar_url: avatarUrl
+          },
+          { onConflict: 'id' }
+        )
+        .select()
+        .single();
+
+      if (error) {
+        console.warn('Fallback app_users upsert warning:', error.message);
+      }
+
+      if (defaultHhId) {
+        await this.client
+          .from('household_members')
+          .upsert(
+            {
+              household_id: defaultHhId,
+              user_id: authUser.id,
+              role_in_household: 'member'
+            },
+            { onConflict: 'household_id,user_id' }
+          );
+      }
+
+      const refreshed = await this.fetchAppUserById(authUser.id);
+      if (refreshed) return refreshed;
+
+      return {
+        id: authUser.id,
+        username: username,
+        email: authUser.email,
+        fullName: fullName,
+        role: 'household_member',
+        household_id: defaultHhId,
+        household_ids: defaultHhId ? [defaultHhId] : [],
+        avatar_url: avatarUrl || undefined
+      };
+    } catch (e) {
+      console.warn('Fallback creation of OAuth app user failed:', e);
+      return null;
+    }
   }
 
   // Authentication Verification

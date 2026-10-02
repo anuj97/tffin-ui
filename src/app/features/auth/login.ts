@@ -23,11 +23,13 @@ export class LoginComponent {
   public rememberMe = signal<boolean>(true);
   public showPassword = signal<boolean>(false);
   public errorMessage = signal<string | null>(null);
+  public isGoogleLoading = signal<boolean>(false);
 
   constructor() {
-    // If already logged in, redirect directly to dashboard
+    // If already logged in, redirect directly to dashboard or returnUrl
     if (this.auth.isAuthenticated()) {
-      this.router.navigate(['/dashboard']);
+      const returnUrl = this.route.snapshot.queryParams['returnUrl'] || '/dashboard';
+      this.router.navigateByUrl(returnUrl);
     }
   }
 
@@ -50,6 +52,17 @@ export class LoginComponent {
       this.router.navigateByUrl(returnUrl);
     } else {
       this.errorMessage.set(res.error || 'Authentication failed. Please verify credentials.');
+    }
+  }
+
+  public async onSignInGoogle(): Promise<void> {
+    this.errorMessage.set(null);
+    this.isGoogleLoading.set(true);
+
+    const res = await this.auth.loginWithGoogle();
+    if (!res.success && res.error) {
+      this.errorMessage.set(res.error);
+      this.isGoogleLoading.set(false);
     }
   }
 

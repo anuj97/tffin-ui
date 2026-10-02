@@ -27,6 +27,10 @@ export class AuthService {
   public isAuthenticating = signal<boolean>(false);
   public isLocalDebug = signal<boolean>(this.checkIfLocalDebug());
 
+  constructor() {
+    this.initSupabaseAuthListener();
+  }
+
   private checkIfLocalDebug(): boolean {
     return localStorage.getItem(DEBUG_FLAG_KEY) === 'true' || sessionStorage.getItem(DEBUG_FLAG_KEY) === 'true';
   }
@@ -43,6 +47,61 @@ export class AuthService {
     return null;
   }
 
+  private initSupabaseAuthListener(): void {
+    const client = this.supabase.clientInstance;
+    if (!client) return;
+
+    client.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
+        if (session?.user) {
+          // If we are currently in local debug mode without OAuth redirect tokens, don't override
+          const hasOAuthTokens =
+            typeof window !== 'undefined' &&
+            (window.location.hash.includes('access_token') || window.location.search.includes('code='));
+
+          if (this.isLocalDebug() && !hasOAuthTokens) {
+            return;
+          }
+
+          // If current user is already hydrated with this ID, avoid duplicate fetch
+          if (this.currentUser()?.id === session.user.id) {
+            return;
+          }
+
+          this.isAuthenticating.set(true);
+          try {
+            const userProfile = await this.supabase.ensureOAuthAppUser({
+              id: session.user.id,
+              email: session.user.email,
+              user_metadata: session.user.user_metadata
+            });
+
+            if (userProfile) {
+              this.currentUser.set(userProfile);
+              this.isLocalDebug.set(false);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(userProfile));
+              localStorage.removeItem(DEBUG_FLAG_KEY);
+              sessionStorage.removeItem(DEBUG_FLAG_KEY);
+
+              // If currently on login page, redirect to dashboard
+              if (this.router.url.includes('/login') || this.router.url === '/') {
+                this.router.navigate(['/dashboard']);
+              }
+            }
+          } catch (err) {
+            console.error('Failed to sync OAuth session profile:', err);
+          } finally {
+            this.isAuthenticating.set(false);
+          }
+        }
+      } else if (event === 'SIGNED_OUT') {
+        if (!this.isLocalDebug()) {
+          this.clearLocalSession();
+        }
+      }
+    });
+  }
+
   public loginLocalDebug(personaKey: string = 'admin'): { success: boolean } {
     const matched = MOCK_USERS[personaKey] || MOCK_USERS['admin'];
     const user: AppUser = {
@@ -54,6 +113,46 @@ export class AuthService {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
     localStorage.setItem(DEBUG_FLAG_KEY, 'true');
     return { success: true };
+  }
+
+  public async loginWithGoogle(): Promise<{ success: boolean; error?: string }> {
+    this.isAuthenticating.set(true);
+
+    if (!this.supabase.clientInstance) {
+      this.isAuthenticating.set(false);
+      return {
+        success: false,
+        error: 'Supabase credentials are not configured in environment.'
+      };
+    }
+
+    try {
+      const redirectTo = `${window.location.origin}/login`;
+      const { error } = await this.supabase.clientInstance.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent'
+          }
+        }
+      });
+
+      if (error) {
+        this.isAuthenticating.set(false);
+        return { success: false, error: error.message };
+      }
+
+      // Browser redirects to Google OAuth consent
+      return { success: true };
+    } catch (err: any) {
+      this.isAuthenticating.set(false);
+      return {
+        success: false,
+        error: err.message || 'Failed to initiate Google login.'
+      };
+    }
   }
 
   public async login(
@@ -120,13 +219,24 @@ export class AuthService {
     }
   }
 
-  public logout(): void {
+  public async logout(): Promise<void> {
+    try {
+      if (this.supabase.clientInstance) {
+        await this.supabase.clientInstance.auth.signOut();
+      }
+    } catch (e) {
+      console.warn('Supabase sign-out error:', e);
+    }
+    this.clearLocalSession();
+    this.router.navigate(['/login']);
+  }
+
+  private clearLocalSession(): void {
     localStorage.removeItem(STORAGE_KEY);
     sessionStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(DEBUG_FLAG_KEY);
     sessionStorage.removeItem(DEBUG_FLAG_KEY);
     this.currentUser.set(null);
     this.isLocalDebug.set(false);
-    this.router.navigate(['/login']);
   }
 }
