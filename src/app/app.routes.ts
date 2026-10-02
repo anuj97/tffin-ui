@@ -49,6 +49,12 @@ export const routes: Routes = [
       import('./features/households/household-management').then(m => m.HouseholdManagementComponent)
   },
   {
+    path: 'profile',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/profile/profile').then(m => m.ProfileComponent)
+  },
+  {
     path: '**',
     redirectTo: 'dashboard'
   }

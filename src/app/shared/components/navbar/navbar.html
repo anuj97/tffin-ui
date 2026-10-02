@@ -96,15 +96,23 @@
     <!-- User Profile & Logout -->
     @if (currentUser(); as user) {
       <div class="user-profile-section">
-        <div class="user-badge" title="Role: {{ user.role }}">
+        <a routerLink="/profile" class="user-badge" routerLinkActive="active" title="View & edit your profile">
           <div class="user-avatar">
-            <span>{{ user.username.charAt(0).toUpperCase() }}</span>
+            @if (user.avatar_url; as av) {
+              @if (av.startsWith('http://') || av.startsWith('https://')) {
+                <img [src]="av" alt="Avatar" class="nav-avatar-img" />
+              } @else {
+                <span class="nav-avatar-emoji">{{ av }}</span>
+              }
+            } @else {
+              <span>{{ user.username.charAt(0).toUpperCase() }}</span>
+            }
           </div>
           <div class="user-info">
             <span class="user-name">{{ user.fullName || user.username }}</span>
             <span class="user-role">{{ user.role }}</span>
           </div>
-        </div>
+        </a>
 
         <button (click)="onLogout()" class="btn-logout" title="Sign out of kitchen admin">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
@@ -417,6 +425,19 @@
             <span class="nav-desc">Profiles, dietary notes & member invites</span>
           </div>
         </a>
+
+        <a routerLink="/profile" routerLinkActive="active" (click)="closeSidebar()" class="drawer-nav-item">
+          <div class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+          </div>
+          <div class="nav-label-group">
+            <span class="nav-title">My Profile</span>
+            <span class="nav-desc">Account info, dietary preferences & avatar</span>
+          </div>
+        </a>
       </nav>
     </div>
 
@@ -424,13 +445,23 @@
     <div class="drawer-footer">
       @if (currentUser(); as user) {
         <div class="drawer-user-card">
-          <div class="drawer-user-avatar">
-            <span>{{ user.username.charAt(0).toUpperCase() }}</span>
-          </div>
-          <div class="drawer-user-info">
-            <span class="drawer-user-name">{{ user.fullName || user.username }}</span>
-            <span class="drawer-user-role">{{ user.role }}</span>
-          </div>
+          <a routerLink="/profile" (click)="closeSidebar()" class="drawer-user-link" title="Edit your profile">
+            <div class="drawer-user-avatar">
+              @if (user.avatar_url; as av) {
+                @if (av.startsWith('http://') || av.startsWith('https://')) {
+                  <img [src]="av" alt="Avatar" class="drawer-avatar-img" />
+                } @else {
+                  <span class="drawer-avatar-emoji">{{ av }}</span>
+                }
+              } @else {
+                <span>{{ user.username.charAt(0).toUpperCase() }}</span>
+              }
+            </div>
+            <div class="drawer-user-info">
+              <span class="drawer-user-name">{{ user.fullName || user.username }}</span>
+              <span class="drawer-user-role">{{ user.role }} • Edit Profile</span>
+            </div>
+          </a>
           <button (click)="onLogout()" class="btn-drawer-logout" title="Sign out of kitchen admin">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>

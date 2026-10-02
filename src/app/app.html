@@ -5,4 +5,22 @@
   <main class="app-content" [class.full-bleed]="!auth.isAuthenticated()">
     <router-outlet></router-outlet>
   </main>
+
+  <!-- Global Toast Notification Banner -->
+  @if (store.notification(); as notif) {
+    <div class="global-toast-container">
+      <div class="global-toast" [class]="'toast-' + notif.type">
+        <span class="toast-icon">
+          @if (notif.type === 'success') {
+            ✓
+          } @else if (notif.type === 'error') {
+            ✕
+          } @else {
+            ℹ
+          }
+        </span>
+        <span class="toast-message">{{ notif.message }}</span>
+      </div>
+    </div>
+  }
 </div>

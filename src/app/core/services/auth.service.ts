@@ -113,6 +113,76 @@ export class AuthService {
     return user;
   }
 
+  public async updateCurrentUserProfile(
+    updates: Partial<AppUser>
+  ): Promise<{ success: boolean; error?: string; user?: AppUser }> {
+    const current = this.currentUser();
+    if (!current) {
+      return { success: false, error: 'No user is currently signed in' };
+    }
+
+    if (this.isLocalDebug() || !this.supabase.hasClient) {
+      const updated: AppUser = {
+        ...current,
+        ...updates
+      };
+      this.currentUser.set(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      if (sessionStorage.getItem(STORAGE_KEY)) {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      }
+
+      // Keep mock persona synchronized in debug mode
+      const personaKey = Object.keys(MOCK_USERS).find(
+        k => MOCK_USERS[k].id === current.id || MOCK_USERS[k].username === current.username
+      );
+      if (personaKey) {
+        MOCK_USERS[personaKey] = { ...MOCK_USERS[personaKey], ...updated };
+      }
+
+      return { success: true, user: updated };
+    }
+
+    try {
+      const res = await this.supabase.updateAppUserProfile(current.id, updates);
+      if (!res.success) {
+        return { success: false, error: res.error || 'Failed to update user profile' };
+      }
+
+      const updatedUser = res.data || { ...current, ...updates };
+      this.currentUser.set(updatedUser);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+      return { success: true, user: updatedUser };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Error occurred while saving profile' };
+    }
+  }
+
+  public async updatePassword(
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const current = this.currentUser();
+    if (!current) {
+      return { success: false, error: 'No user is currently signed in' };
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return { success: false, error: 'New password must be at least 6 characters long' };
+    }
+
+    if (this.isLocalDebug() || !this.supabase.hasClient) {
+      return { success: true };
+    }
+
+    return this.supabase.updateAppUserPassword(current.id, currentPassword, newPassword);
+  }
+
+  public async setPrimaryHousehold(householdId: string | null): Promise<boolean> {
+    const res = await this.updateCurrentUserProfile({ household_id: householdId });
+    return res.success;
+  }
+
   public loginLocalDebug(personaKey: string = 'admin'): { success: boolean } {
     const matched = MOCK_USERS[personaKey] || MOCK_USERS['admin'];
     const user: AppUser = {

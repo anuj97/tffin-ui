@@ -1,0 +1,712 @@
+<div class="profile-page">
+  <!-- Page Header -->
+  <header class="page-header">
+    <div class="header-titles">
+      <div class="breadcrumb">
+        <a routerLink="/dashboard" class="breadcrumb-link">Dashboard</a>
+        <span class="breadcrumb-sep">/</span>
+        <span class="breadcrumb-current">My Profile</span>
+      </div>
+      <h1 class="page-title">Profile & Account Settings</h1>
+      <p class="page-desc">Manage your personal information, avatar, dietary constraints, and authentication settings.</p>
+    </div>
+
+    <div class="header-actions">
+      @if (isDirty()) {
+        <button 
+          (click)="resetForm()" 
+          class="btn btn-secondary" 
+          [disabled]="isSaving()"
+          title="Discard unsaved changes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+          <span>Discard</span>
+        </button>
+      }
+
+      <button 
+        (click)="saveProfile()" 
+        class="btn btn-primary btn-glow" 
+        [disabled]="!isDirty() || isSaving()"
+        title="Save profile changes">
+        @if (isSaving()) {
+          <span class="spinner-mini"></span>
+          <span>Saving...</span>
+        } @else {
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+          <span>Save Changes</span>
+        }
+      </button>
+    </div>
+  </header>
+
+  <!-- Hero Profile Banner Card -->
+  @if (currentUser(); as user) {
+    <div class="card profile-hero-card">
+      <div class="hero-avatar-area">
+        <div class="hero-avatar-wrapper" [class.has-custom-avatar]="!!user.avatar_url">
+          @if (avatarUrl(); as customAv) {
+            @if (customAv.startsWith('http://') || customAv.startsWith('https://')) {
+              <img [src]="customAv" alt="Avatar" class="hero-avatar-img" (error)="clearAvatar()" />
+            } @else {
+              <span class="hero-avatar-emoji">{{ customAv }}</span>
+            }
+          } @else {
+            <span class="hero-avatar-initials">{{ userInitials() }}</span>
+          }
+
+          <button 
+            (click)="setTab('avatar')" 
+            class="btn-avatar-edit-badge" 
+            title="Change profile avatar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+          </button>
+        </div>
+
+        <div class="hero-details">
+          <div class="hero-identity-row">
+            <h2 class="hero-name">{{ fullName() || user.fullName || user.username }}</h2>
+            <div class="hero-badges">
+              <span class="badge" [ngClass]="{
+                'badge-amber': user.role === 'admin',
+                'badge-emerald': user.role === 'chef',
+                'badge-sky': user.role === 'household_member',
+                'badge-purple': !['admin', 'chef', 'household_member'].includes(user.role)
+              }">
+                {{ user.role === 'household_member' ? 'Household Member' : (user.role | uppercase) }}
+              </span>
+
+              @if (isGoogleUser()) {
+                <span class="badge badge-sky" title="Authenticated with Google">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h-2v-6h2v6zm4 0h-2v-6h2v6zm-2-8c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/>
+                  </svg>
+                  Google Account
+                </span>
+              }
+
+              @if (isLocalDebug()) {
+                <span class="badge badge-muted" title="Local Debug Session">⚡ Debug Mode</span>
+              }
+            </div>
+          </div>
+
+          <div class="hero-meta-row">
+            <span class="hero-meta-item">
+              <span class="meta-label">@</span>
+              <span class="meta-val">{{ username() || user.username }}</span>
+            </span>
+
+            @if (email() || user.email) {
+              <span class="meta-sep">•</span>
+              <span class="hero-meta-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                  <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                <span class="meta-val">{{ email() || user.email }}</span>
+              </span>
+            }
+
+            @if (currentPrimaryHousehold(); as primHh) {
+              <span class="meta-sep">•</span>
+              <span class="hero-meta-item" title="Primary Household">
+                <span class="hh-dot" [style.background-color]="primHh.color_tag || '#6366f1'"></span>
+                <span class="meta-val">{{ primHh.name }} ({{ primHh.code || 'HH' }})</span>
+              </span>
+            }
+          </div>
+
+          @if (bio() || user.bio) {
+            <p class="hero-bio">{{ bio() || user.bio }}</p>
+          }
+        </div>
+      </div>
+
+      <div class="hero-stats-box">
+        <div class="hero-stat-pill">
+          <span class="stat-num">{{ authorizedHouseholds().length }}</span>
+          <span class="stat-lbl">Households</span>
+        </div>
+        <div class="hero-stat-pill">
+          <span class="stat-num">{{ currentPrimaryHousehold()?.default_headcount || 1 }}</span>
+          <span class="stat-lbl">Portions</span>
+        </div>
+        <button (click)="copyUserId()" class="btn-copy-id" title="Copy User ID">
+          <span>ID: {{ user.id.slice(0, 8) }}...</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+            @if (copiedId()) {
+              <polyline points="20 6 9 17 4 12"></polyline>
+            } @else {
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            }
+          </svg>
+        </button>
+      </div>
+    </div>
+  }
+
+  <!-- Tab Navigation -->
+  <div class="profile-tabs-bar">
+    <button 
+      (click)="setTab('general')" 
+      class="profile-tab" 
+      [class.active]="activeTab() === 'general'">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+        <circle cx="12" cy="7" r="4"></circle>
+      </svg>
+      <span>Personal Information</span>
+      @if (isDirty()) {
+        <span class="tab-dirty-indicator" title="Unsaved changes">●</span>
+      }
+    </button>
+
+    <button 
+      (click)="setTab('avatar')" 
+      class="profile-tab" 
+      [class.active]="activeTab() === 'avatar'">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+        <line x1="9" y1="9" x2="9.01" y2="9"></line>
+        <line x1="15" y1="9" x2="15.01" y2="9"></line>
+      </svg>
+      <span>Avatar & Appearance</span>
+    </button>
+
+    <button 
+      (click)="setTab('security')" 
+      class="profile-tab" 
+      [class.active]="activeTab() === 'security'">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+      </svg>
+      <span>Security & Credentials</span>
+    </button>
+
+    <button 
+      (click)="setTab('households')" 
+      class="profile-tab" 
+      [class.active]="activeTab() === 'households'">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+      </svg>
+      <span>Households & Access ({{ authorizedHouseholds().length }})</span>
+    </button>
+  </div>
+
+  <!-- TAB CONTENT -->
+
+  <!-- Tab 1: Personal Information -->
+  @if (activeTab() === 'general') {
+    <div class="card tab-pane">
+      <div class="pane-header">
+        <div class="pane-title-group">
+          <h3 class="pane-title">Personal Details</h3>
+          <p class="pane-desc">Update your personal contact details, household assignment, and dietary specifications.</p>
+        </div>
+        @if (isDirty()) {
+          <span class="unsaved-badge">Unsaved Changes</span>
+        }
+      </div>
+
+      <div class="form-grid-2col">
+        <!-- Full Name -->
+        <div class="form-group">
+          <label for="fullName">Full Name *</label>
+          <div class="input-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="input-icon">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            <input 
+              id="fullName"
+              type="text" 
+              class="form-control" 
+              [value]="fullName()" 
+              (input)="fullName.set($any($event.target).value)" 
+              placeholder="e.g. Aditi Sharma" />
+          </div>
+        </div>
+
+        <!-- Username -->
+        <div class="form-group">
+          <label for="username">Username *</label>
+          <div class="input-icon-wrap">
+            <span class="input-icon-text">@</span>
+            <input 
+              id="username"
+              type="text" 
+              class="form-control" 
+              [value]="username()" 
+              (input)="username.set($any($event.target).value)" 
+              placeholder="e.g. aditi_sharma" />
+          </div>
+          <span class="form-hint">Used for unique identification in recipes and meal schedules.</span>
+        </div>
+
+        <!-- Email -->
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <div class="input-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="input-icon">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+              <polyline points="22,6 12,13 2,6"></polyline>
+            </svg>
+            <input 
+              id="email"
+              type="email" 
+              class="form-control" 
+              [value]="email()" 
+              (input)="email.set($any($event.target).value)" 
+              placeholder="e.g. aditi@example.com" />
+          </div>
+        </div>
+
+        <!-- Phone Number -->
+        <div class="form-group">
+          <label for="phone">Phone / WhatsApp Number</label>
+          <div class="input-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="input-icon">
+              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+            </svg>
+            <input 
+              id="phone"
+              type="tel" 
+              class="form-control" 
+              [value]="phone()" 
+              (input)="phone.set($any($event.target).value)" 
+              placeholder="e.g. +91 98765 43210" />
+          </div>
+          <span class="form-hint">Used for meal dispatch updates and grocery shortage inquiries.</span>
+        </div>
+
+        <!-- Primary Household Selector -->
+        <div class="form-group full-width">
+          <label for="primaryHousehold">Default / Primary Household</label>
+          <select 
+            id="primaryHousehold"
+            class="form-control" 
+            [value]="selectedHouseholdId()" 
+            (change)="selectedHouseholdId.set($any($event.target).value)">
+            <option value="">None / Unassigned</option>
+            @for (hh of authorizedHouseholds(); track hh.id) {
+              <option [value]="hh.id">
+                🏠 {{ hh.name }} ({{ hh.code || 'HH' }}) - {{ hh.default_headcount }} portions
+              </option>
+            }
+          </select>
+          <span class="form-hint">This household is selected automatically when you open the meal planner and kitchen dashboard.</span>
+        </div>
+
+        <!-- Dietary Preferences -->
+        <div class="form-group full-width">
+          <label for="dietaryPreferences">Dietary Preferences & Spice Restrictions</label>
+          <input 
+            id="dietaryPreferences"
+            type="text" 
+            class="form-control" 
+            [value]="dietaryPreferences()" 
+            (input)="dietaryPreferences.set($any($event.target).value)" 
+            placeholder="e.g. Vegetarian, Jain (no garlic/onion), Gluten-free, Low oil" />
+          
+          <div class="quick-tags-row mt-2">
+            <span class="quick-tag-label">Quick Suggestions:</span>
+            <button type="button" class="btn-quick-tag" (click)="dietaryPreferences.set('Strictly Vegetarian')">Vegetarian</button>
+            <button type="button" class="btn-quick-tag" (click)="dietaryPreferences.set('Jain (no onion/garlic)')">Jain</button>
+            <button type="button" class="btn-quick-tag" (click)="dietaryPreferences.set('Gluten-free, Low Spice')">Gluten-free</button>
+            <button type="button" class="btn-quick-tag" (click)="dietaryPreferences.set('High Protein, Eggitarian')">High Protein</button>
+            <button type="button" class="btn-quick-tag" (click)="dietaryPreferences.set('No Restrictions / Standard')">Standard</button>
+          </div>
+        </div>
+
+        <!-- Bio / Notes -->
+        <div class="form-group full-width">
+          <label for="bio">Personal Notes / Bio</label>
+          <textarea 
+            id="bio"
+            rows="3" 
+            class="form-control" 
+            [value]="bio()" 
+            (input)="bio.set($any($event.target).value)" 
+            placeholder="A brief note about your cooking preferences, kitchen role, or household schedule..."></textarea>
+        </div>
+      </div>
+
+      <div class="pane-footer">
+        @if (isDirty()) {
+          <button (click)="resetForm()" class="btn btn-secondary">Discard Changes</button>
+        }
+        <button 
+          (click)="saveProfile()" 
+          class="btn btn-primary btn-glow" 
+          [disabled]="!isDirty() || isSaving()">
+          @if (isSaving()) {
+            <span class="spinner-mini"></span>
+            <span>Saving...</span>
+          } @else {
+            <span>Save Profile</span>
+          }
+        </button>
+      </div>
+    </div>
+  }
+
+  <!-- Tab 2: Avatar & Appearance -->
+  @if (activeTab() === 'avatar') {
+    <div class="card tab-pane">
+      <div class="pane-header">
+        <div class="pane-title-group">
+          <h3 class="pane-title">Avatar & Visual Identity</h3>
+          <p class="pane-desc">Choose a fun culinary avatar or provide a custom image URL for your profile.</p>
+        </div>
+      </div>
+
+      <div class="avatar-tab-content">
+        <!-- Live Preview Card -->
+        <div class="avatar-preview-card">
+          <div class="preview-avatar-circle">
+            @if (avatarUrl(); as av) {
+              @if (av.startsWith('http://') || av.startsWith('https://')) {
+                <img [src]="av" alt="Avatar preview" class="preview-img" (error)="clearAvatar()" />
+              } @else {
+                <span class="preview-emoji">{{ av }}</span>
+              }
+            } @else {
+              <span class="preview-initials">{{ userInitials() }}</span>
+            }
+          </div>
+          <div class="preview-meta">
+            <h4>{{ fullName() || currentUser()?.fullName || 'Kitchen Member' }}</h4>
+            <p>{{ avatarUrl() ? 'Custom avatar active' : 'Default initials avatar' }}</p>
+            @if (avatarUrl()) {
+              <button (click)="clearAvatar()" class="btn btn-secondary btn-sm mt-1">
+                Remove Custom Avatar
+              </button>
+            }
+          </div>
+        </div>
+
+        <!-- Preset Avatars Grid -->
+        <div class="avatar-presets-section">
+          <h4 class="section-subheading">Culinary & Chef Presets</h4>
+          <p class="section-subtext">Click any culinary badge to instantly set it as your profile avatar:</p>
+
+          <div class="preset-grid">
+            @for (preset of avatarPresets; track preset.id) {
+              <button 
+                type="button"
+                (click)="selectAvatarPreset(preset)" 
+                class="preset-card" 
+                [class.selected]="avatarUrl() === preset.emoji"
+                title="{{ preset.name }} ({{ preset.category }})">
+                <span class="preset-emoji">{{ preset.emoji }}</span>
+                <span class="preset-name">{{ preset.name }}</span>
+              </button>
+            }
+          </div>
+        </div>
+
+        <!-- Custom Image URL Input -->
+        <div class="custom-avatar-url-section">
+          <h4 class="section-subheading">Or Enter an Image URL</h4>
+          <div class="form-group">
+            <label for="customAvatarUrl">Direct Image URL (HTTPS)</label>
+            <div class="input-icon-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="input-icon">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+              <input 
+                id="customAvatarUrl"
+                type="url" 
+                class="form-control" 
+                [value]="avatarUrl()" 
+                (input)="avatarUrl.set($any($event.target).value)" 
+                placeholder="https://example.com/my-photo.jpg" />
+            </div>
+            <span class="form-hint">Make sure the URL is public and ends with an image format (jpg, png, webp, svg).</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="pane-footer">
+        <button 
+          (click)="saveProfile()" 
+          class="btn btn-primary btn-glow" 
+          [disabled]="!isDirty() || isSaving()">
+          Save Avatar
+        </button>
+      </div>
+    </div>
+  }
+
+  <!-- Tab 3: Security & Credentials -->
+  @if (activeTab() === 'security') {
+    <div class="card tab-pane">
+      <div class="pane-header">
+        <div class="pane-title-group">
+          <h3 class="pane-title">Security & Credentials</h3>
+          <p class="pane-desc">Manage your password, login credentials, and account protection.</p>
+        </div>
+      </div>
+
+      @if (isGoogleUser()) {
+        <!-- Google OAuth Card -->
+        <div class="oauth-info-card">
+          <div class="oauth-icon-bubble">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="28" height="28">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h-2v-6h2v6zm4 0h-2v-6h2v6zm-2-8c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/>
+            </svg>
+          </div>
+          <div class="oauth-text">
+            <h4>Google Single Sign-On Active</h4>
+            <p>
+              Your account authentication is securely managed by Google OAuth. 
+              Password updates, multi-factor authentication, and login sessions are protected through your Google Account.
+            </p>
+            <div class="oauth-status-pill">
+              <span class="dot-online"></span>
+              <span>Connected as {{ currentUser()?.email || currentUser()?.username }}</span>
+            </div>
+          </div>
+        </div>
+      } @else {
+        <!-- Password Change Form -->
+        <div class="password-change-box">
+          <div class="box-title-area">
+            <h4>Change Account Password</h4>
+            <p>Ensure your account is protected with a secure password containing at least 6 characters.</p>
+          </div>
+
+          <div class="form-grid-password">
+            <!-- Current Password -->
+            <div class="form-group">
+              <label for="currentPassword">Current Password</label>
+              <div class="password-input-wrap">
+                <input 
+                  id="currentPassword"
+                  [type]="showCurrentPassword() ? 'text' : 'password'" 
+                  class="form-control" 
+                  [value]="currentPassword()" 
+                  (input)="currentPassword.set($any($event.target).value)" 
+                  placeholder="Enter current password" />
+                <button 
+                  type="button" 
+                  class="btn-toggle-pw" 
+                  (click)="toggleCurrentPassword()"
+                  title="Toggle visibility">
+                  {{ showCurrentPassword() ? '🙈' : '👁️' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- New Password -->
+            <div class="form-group">
+              <label for="newPassword">New Password</label>
+              <div class="password-input-wrap">
+                <input 
+                  id="newPassword"
+                  [type]="showNewPassword() ? 'text' : 'password'" 
+                  class="form-control" 
+                  [value]="newPassword()" 
+                  (input)="newPassword.set($any($event.target).value)" 
+                  placeholder="At least 6 characters" />
+                <button 
+                  type="button" 
+                  class="btn-toggle-pw" 
+                  (click)="toggleNewPassword()"
+                  title="Toggle visibility">
+                  {{ showNewPassword() ? '🙈' : '👁️' }}
+                </button>
+              </div>
+              @if (passwordTooShort()) {
+                <span class="password-error-hint">Password must be at least 6 characters.</span>
+              }
+            </div>
+
+            <!-- Confirm New Password -->
+            <div class="form-group">
+              <label for="confirmPassword">Confirm New Password</label>
+              <div class="password-input-wrap">
+                <input 
+                  id="confirmPassword"
+                  [type]="showConfirmPassword() ? 'text' : 'password'" 
+                  class="form-control" 
+                  [value]="confirmPassword()" 
+                  (input)="confirmPassword.set($any($event.target).value)" 
+                  placeholder="Confirm new password" />
+                <button 
+                  type="button" 
+                  class="btn-toggle-pw" 
+                  (click)="toggleConfirmPassword()"
+                  title="Toggle visibility">
+                  {{ showConfirmPassword() ? '🙈' : '👁️' }}
+                </button>
+              </div>
+              @if (passwordMismatch()) {
+                <span class="password-error-hint">Passwords do not match.</span>
+              }
+            </div>
+          </div>
+
+          <div class="password-submit-row">
+            <button 
+              (click)="updatePassword()" 
+              class="btn btn-primary" 
+              [disabled]="!canSubmitPassword()">
+              @if (isUpdatingPassword()) {
+                <span class="spinner-mini"></span>
+                <span>Updating Password...</span>
+              } @else {
+                <span>Update Password</span>
+              }
+            </button>
+          </div>
+        </div>
+      }
+
+      <!-- Session Info -->
+      <div class="session-info-card mt-3">
+        <h4 class="subcard-title">Session Details</h4>
+        <div class="session-details-grid">
+          <div class="session-item">
+            <span class="session-lbl">Account Identifier:</span>
+            <span class="session-val mono">{{ currentUser()?.id }}</span>
+          </div>
+          <div class="session-item">
+            <span class="session-lbl">Security Role:</span>
+            <span class="session-val">{{ currentUser()?.role }}</span>
+          </div>
+          <div class="session-item">
+            <span class="session-lbl">Backend Engine:</span>
+            <span class="session-val">{{ isLocalDebug() ? 'Local Mock Storage' : 'Supabase Cloud Database' }}</span>
+          </div>
+        </div>
+
+        <div class="session-actions mt-3">
+          <button (click)="onLogout()" class="btn btn-danger btn-sm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+            <span>Sign Out from This Device</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Tab 4: Households & Access -->
+  @if (activeTab() === 'households') {
+    <div class="card tab-pane">
+      <div class="pane-header">
+        <div class="pane-title-group">
+          <h3 class="pane-title">Authorized Households</h3>
+          <p class="pane-desc">Households you are a member or manager of. Meal plans and portions are synchronized for each.</p>
+        </div>
+        <a routerLink="/households" class="btn btn-secondary btn-sm">
+          <span>Manage All Households</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <path d="M5 12h14"></path>
+            <path d="M12 5l7 7-7 7"></path>
+          </svg>
+        </a>
+      </div>
+
+      @if (authorizedHouseholds().length === 0) {
+        <div class="empty-households-card">
+          <span class="empty-icon">🏠</span>
+          <h4>No Households Assigned</h4>
+          <p>You have not been linked to any household yet. Create a household or ask an owner for an invite code.</p>
+          <a routerLink="/households" class="btn btn-primary btn-sm mt-2">Go to Household Hub</a>
+        </div>
+      } @else {
+        <div class="household-cards-grid">
+          @for (hh of authorizedHouseholds(); track hh.id) {
+            <div class="hh-access-card" [class.is-primary]="currentUser()?.household_id === hh.id">
+              <div class="hh-access-header">
+                <div class="hh-badge" [style.background-color]="hh.color_tag || '#6366f1'">
+                  {{ hh.code || 'HH' }}
+                </div>
+                <div class="hh-title-area">
+                  <h4 class="hh-name">{{ hh.name }}</h4>
+                  <span class="hh-portions">{{ hh.default_headcount }} portions per meal</span>
+                </div>
+                @if (currentUser()?.household_id === hh.id) {
+                  <span class="primary-tag" title="Default household for this account">Primary</span>
+                }
+              </div>
+
+              @if (hh.dietary_notes) {
+                <div class="hh-dietary-box">
+                  <span class="dietary-icon">🥗</span>
+                  <span>{{ hh.dietary_notes }}</span>
+                </div>
+              }
+
+              <div class="hh-access-footer">
+                @if (currentUser()?.household_id !== hh.id) {
+                  <button 
+                    (click)="setAsPrimaryHousehold(hh.id)" 
+                    class="btn btn-secondary btn-sm"
+                    title="Set as your primary household">
+                    Set as Primary
+                  </button>
+                }
+                <a routerLink="/planner" class="btn btn-ghost btn-sm" title="View meal planner for this household">
+                  <span>View Meals</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                    <path d="M5 12h14"></path>
+                    <path d="M12 5l7 7-7 7"></path>
+                  </svg>
+                </a>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+
+  <!-- Local Debug Quick Persona Switcher -->
+  @if (isLocalDebug()) {
+    <div class="card debug-persona-card">
+      <div class="debug-card-header">
+        <span class="debug-lightning">⚡</span>
+        <div>
+          <h4>Local Debug Sandbox: Test Persona Switcher</h4>
+          <p>Quickly preview and test different user profiles and roles in your local session:</p>
+        </div>
+      </div>
+
+      <div class="persona-pills-row">
+        @for (p of mockPersonas; track p.key) {
+          <button 
+            type="button" 
+            (click)="switchDebugPersona(p.key)" 
+            class="btn-persona-pill"
+            [class.active-persona]="currentUser()?.username === p.username">
+            <span class="pill-name">{{ p.name }}</span>
+            <span class="pill-role">({{ p.role }})</span>
+          </button>
+        }
+      </div>
+    </div>
+  }
+</div>

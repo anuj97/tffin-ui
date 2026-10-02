@@ -10,44 +10,68 @@ export const MOCK_USERS: Record<string, AppUser> = {
     id: 'user-admin',
     username: 'admin',
     fullName: 'Kitchen Super Admin',
+    email: 'admin@tffinkitchen.local',
     role: 'admin',
+    phone: '+91 98765 43210',
+    dietary_preferences: 'No restrictions - taste testing all diets',
+    bio: 'Kitchen operational director and master menu overseer.',
     household_ids: [] // Unrestricted: can view all households
   },
   chef: {
     id: 'user-chef',
     username: 'chef_rajesh',
     fullName: 'Chef Rajesh',
+    email: 'chef.rajesh@tffinkitchen.local',
     role: 'chef',
+    phone: '+91 98220 11223',
+    dietary_preferences: 'Culinary expert - specializes in North Indian and Gujarati thali',
+    bio: 'Head Chef with 12 years experience in high-volume catering.',
     household_ids: [] // Unrestricted: kitchen prep for all
   },
   verma: {
     id: 'user-verma',
     username: 'amit_verma',
-    fullName: 'Amit Verma (Verma Residence)',
+    fullName: 'Amit Verma',
+    email: 'amit.verma@example.com',
     role: 'household_member',
+    phone: '+91 98111 22334',
+    dietary_preferences: 'Strictly vegetarian, low oil, mild chili spice',
+    bio: 'Verma Residence head of household.',
     household_id: 'mock-hh-02',
     household_ids: ['mock-hh-02'] // Strictly Verma Residence
   },
   priya: {
     id: 'user-priya',
     username: 'priya_patel',
-    fullName: 'Priya Patel (Apt 301)',
+    fullName: 'Priya Patel',
+    email: 'priya.patel@example.com',
     role: 'household_member',
+    phone: '+91 97333 44556',
+    dietary_preferences: 'Jain cuisine (strictly no onion, garlic, or root vegetables)',
+    bio: 'Apartment 402 resident.',
     household_id: 'mock-hh-03',
     household_ids: ['mock-hh-03'] // Strictly Apartment 301
   },
   multi: {
     id: 'user-multi',
     username: 'kiran_manager',
-    fullName: 'Kiran (Verma + Apt 301)',
+    fullName: 'Kiran Manager',
+    email: 'kiran.coord@example.com',
     role: 'household_member',
+    phone: '+91 99000 77889',
+    dietary_preferences: 'Balanced diet, gluten-sensitive on weekdays',
+    bio: 'Coordinator between Verma & Apt 301 residences.',
     household_ids: ['mock-hh-02', 'mock-hh-03'] // Both households
   },
   new_user: {
     id: 'user-new',
     username: 'rohan_new',
-    fullName: 'Rohan (No Household)',
+    fullName: 'Rohan Sharma',
+    email: 'rohan.sharma@example.com',
     role: 'household_member',
+    phone: '+91 91234 56789',
+    dietary_preferences: 'Eggitarian, high protein',
+    bio: 'New kitchen subscriber onboarding this week.',
     household_ids: [] // Not assigned to any household yet
   }
 };

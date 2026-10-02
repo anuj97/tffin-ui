@@ -122,11 +122,130 @@ export class SupabaseService {
         role: userRow.role || 'household_member',
         household_id: userRow.household_id || (hhIds.length > 0 ? hhIds[0] : null),
         household_ids: hhIds,
-        avatar_url: userRow.avatar_url || undefined
+        avatar_url: userRow.avatar_url || undefined,
+        phone: userRow.phone || undefined,
+        dietary_preferences: userRow.dietary_preferences || undefined,
+        bio: userRow.bio || undefined,
+        created_at: userRow.created_at || undefined
       };
     } catch (e) {
       console.warn('Error fetching app user by ID:', e);
       return null;
+    }
+  }
+
+  public async updateAppUserProfile(
+    userId: string,
+    updates: Partial<AppUser>
+  ): Promise<{ success: boolean; data?: AppUser; error?: string }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase client is not configured' };
+    }
+
+    try {
+      const payload: Record<string, any> = {};
+      if (updates.fullName !== undefined) payload['full_name'] = updates.fullName.trim();
+      if (updates.username !== undefined) payload['username'] = updates.username.trim().toLowerCase();
+      if (updates.email !== undefined) payload['email'] = updates.email ? updates.email.trim() : null;
+      if (updates.avatar_url !== undefined) payload['avatar_url'] = updates.avatar_url;
+      if (updates.phone !== undefined) payload['phone'] = updates.phone ? updates.phone.trim() : null;
+      if (updates.dietary_preferences !== undefined) payload['dietary_preferences'] = updates.dietary_preferences;
+      if (updates.bio !== undefined) payload['bio'] = updates.bio;
+      if (updates.household_id !== undefined) payload['household_id'] = updates.household_id;
+
+      let { data, error } = await this.client
+        .from('app_users')
+        .update(payload)
+        .eq('id', userId)
+        .select()
+        .maybeSingle();
+
+      // Fallback: If newer optional columns don't exist yet, retry updating core fields
+      if (error && (error.message.includes('column') || error.message.includes('schema'))) {
+        const fallbackPayload: Record<string, any> = {};
+        if (updates.fullName !== undefined) fallbackPayload['full_name'] = updates.fullName.trim();
+        if (updates.username !== undefined) fallbackPayload['username'] = updates.username.trim().toLowerCase();
+        if (updates.email !== undefined) fallbackPayload['email'] = updates.email ? updates.email.trim() : null;
+        if (updates.avatar_url !== undefined) fallbackPayload['avatar_url'] = updates.avatar_url;
+        if (updates.household_id !== undefined) fallbackPayload['household_id'] = updates.household_id;
+
+        const retryRes = await this.client
+          .from('app_users')
+          .update(fallbackPayload)
+          .eq('id', userId)
+          .select()
+          .maybeSingle();
+
+        error = retryRes.error;
+        data = retryRes.data;
+      }
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      // Sync Supabase Auth metadata if active session
+      try {
+        await this.client.auth.updateUser({
+          data: {
+            full_name: updates.fullName,
+            name: updates.fullName,
+            avatar_url: updates.avatar_url
+          }
+        });
+      } catch (authErr) {
+        // Non-fatal for standalone app_users
+      }
+
+      const refreshed = await this.fetchAppUserById(userId);
+      return { success: true, data: refreshed || undefined };
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Failed to update user profile' };
+    }
+  }
+
+  public async updateAppUserPassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.client) {
+      return { success: false, error: 'Supabase client is not configured' };
+    }
+
+    try {
+      let authUpdated = false;
+      try {
+        const { error: authErr } = await this.client.auth.updateUser({
+          password: newPassword
+        });
+        if (!authErr) {
+          authUpdated = true;
+        }
+      } catch (e) {
+        // Not a supabase auth user session
+      }
+
+      const { data: rpcSuccess, error: rpcErr } = await this.client.rpc('update_app_user_password', {
+        p_user_id: userId,
+        p_current_password: currentPassword,
+        p_new_password: newPassword
+      });
+
+      if (rpcErr) {
+        if (authUpdated) {
+          return { success: true };
+        }
+        return { success: false, error: rpcErr.message };
+      }
+
+      if (rpcSuccess === false) {
+        return { success: false, error: 'Current password does not match' };
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Failed to update password' };
     }
   }
 
