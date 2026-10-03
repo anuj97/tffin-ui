@@ -1,6 +1,7 @@
 {
   "name": "tffin-ui",
   "version": "0.0.0",
+  "packageManager": "pnpm@12.8.1",
   "scripts": {
     "ng": "ng",
     "prestart": "node scripts/set-env.js",
