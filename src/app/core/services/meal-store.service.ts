@@ -376,8 +376,12 @@ export class MealStoreService {
     return this.householdService.toggleHouseholdActive(id);
   }
 
-  public deleteHousehold(id: string): Promise<boolean> {
-    return this.householdService.deleteHousehold(id);
+  public async deleteHousehold(id: string): Promise<boolean> {
+    const success = await this.householdService.deleteHousehold(id);
+    if (success) {
+      this.schedules.update(list => list.filter(s => s.household_id !== id));
+    }
+    return success;
   }
 
   public loadHouseholdMembers(householdId: string): Promise<void> {
