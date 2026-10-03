@@ -5,8 +5,8 @@ import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
 import { MealSchedule, MealType } from '../models/meal-schedule.model';
-import { Household, HouseholdMember, HouseholdInvitation } from '../models/household.model';
-import { AppUser } from '../models/user.model';
+import { Household, HouseholdMember, HouseholdInvitation, HouseholdMemberRole } from '../models/household.model';
+import { AppUser, UserHouseholdMembership } from '../models/user.model';
 
 export interface SupabaseConfig {
   url: string;
@@ -101,12 +101,17 @@ export class SupabaseService {
 
       const { data: memberRows } = await this.client
         .from('household_members')
-        .select('household_id')
+        .select('household_id, role_in_household')
         .eq('user_id', userId);
 
-      const memberHhIds: string[] = (memberRows && memberRows.length > 0)
-        ? memberRows.map((m: any) => m.household_id)
+      const memberships: UserHouseholdMembership[] = (memberRows && memberRows.length > 0)
+        ? memberRows.map((m: any) => ({
+            household_id: m.household_id,
+            role: (m.role_in_household || 'member') as HouseholdMemberRole
+          }))
         : [];
+
+      const memberHhIds: string[] = memberships.map(m => m.household_id);
 
       const combinedSet = new Set<string>(memberHhIds);
       if (userRow.household_id) {
@@ -122,6 +127,7 @@ export class SupabaseService {
         role: userRow.role || 'household_member',
         household_id: userRow.household_id || (hhIds.length > 0 ? hhIds[0] : null),
         household_ids: hhIds,
+        memberships,
         avatar_url: userRow.avatar_url || undefined,
         phone: userRow.phone || undefined,
         dietary_preferences: userRow.dietary_preferences || undefined,
@@ -310,6 +316,7 @@ export class SupabaseService {
         role: 'household_member',
         household_id: null,
         household_ids: [],
+        memberships: [],
         avatar_url: avatarUrl || undefined
       };
     } catch (e) {
@@ -338,9 +345,19 @@ export class SupabaseService {
     }
 
     const row = data[0];
+    const fullUser = await this.fetchAppUserById(row.id);
+    if (fullUser) {
+      return fullUser;
+    }
+
     const hhIds: string[] = Array.isArray(row.household_ids)
       ? row.household_ids
       : (row.household_id ? [row.household_id] : []);
+
+    const memberships: UserHouseholdMembership[] = hhIds.map(hid => ({
+      household_id: hid,
+      role: (row.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole
+    }));
 
     return {
       id: row.id,
@@ -348,7 +365,8 @@ export class SupabaseService {
       fullName: row.full_name || 'Kitchen Admin',
       role: row.role || 'admin',
       household_id: row.household_id || null,
-      household_ids: hhIds
+      household_ids: hhIds,
+      memberships
     };
   }
 

@@ -2,6 +2,7 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { HouseholdService } from '../../core/services/household.service';
 import { MealStoreService } from '../../core/services/meal-store.service';
 import { AuthService } from '../../core/services/auth.service';
 import { Household, HouseholdMember, HouseholdInvitation, HouseholdMemberRole } from '../../core/models/household.model';
@@ -14,34 +15,35 @@ import { Household, HouseholdMember, HouseholdInvitation, HouseholdMemberRole } 
   styleUrl: './household-management.scss'
 })
 export class HouseholdManagementComponent implements OnInit {
+  public householdService = inject(HouseholdService);
   public store = inject(MealStoreService);
   public auth = inject(AuthService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
   public currentUser = this.auth.currentUser;
-  public activeHouseholds = this.store.activeHouseholds;
+  public activeHouseholds = this.householdService.activeHouseholds;
   public selectedHouseholdId = signal<string>('');
 
   // Selected Household computed
   public currentHousehold = computed<Household | null>(() => {
     const id = this.selectedHouseholdId();
     if (!id) return this.activeHouseholds()[0] || null;
-    return this.store.householdsMap().get(id) || this.activeHouseholds()[0] || null;
+    return this.householdService.householdsMap().get(id) || this.activeHouseholds()[0] || null;
   });
 
   // Current Household Members
   public currentMembers = computed<HouseholdMember[]>(() => {
     const hhId = this.currentHousehold()?.id;
     if (!hhId) return [];
-    return this.store.householdMembers().filter(m => m.household_id === hhId);
+    return this.householdService.householdMembers().filter(m => m.household_id === hhId);
   });
 
   // Current Household Invitations
   public currentInvitations = computed<HouseholdInvitation[]>(() => {
     const hhId = this.currentHousehold()?.id;
     if (!hhId) return [];
-    return this.store.householdInvitations().filter(i => i.household_id === hhId);
+    return this.householdService.householdInvitations().filter(i => i.household_id === hhId);
   });
 
   public pendingInvitations = computed<HouseholdInvitation[]>(() => {
@@ -52,15 +54,11 @@ export class HouseholdManagementComponent implements OnInit {
     return this.activeHouseholds().length === 0;
   });
 
-  // Permission Check
+  // Permission Check using HouseholdService
   public canManage = computed<boolean>(() => {
-    const u = this.currentUser();
-    if (!u) return false;
-    if (['admin', 'owner'].includes(u.role)) return true;
     const hhId = this.currentHousehold()?.id;
     if (!hhId) return false;
-    const membership = this.currentMembers().find(m => m.user_id === u.id);
-    return membership?.role_in_household === 'owner';
+    return this.householdService.canManage(hhId);
   });
 
   // Invite Modal State
@@ -107,12 +105,12 @@ export class HouseholdManagementComponent implements OnInit {
 
   public ngOnInit(): void {
     // Initial household selection
-    const initialHhId = this.store.effectiveHouseholdId() || this.activeHouseholds()[0]?.id || '';
+    const initialHhId = this.householdService.effectiveHouseholdId() || this.activeHouseholds()[0]?.id || '';
     this.selectedHouseholdId.set(initialHhId);
 
     if (initialHhId) {
-      this.store.loadHouseholdMembers(initialHhId);
-      this.store.loadHouseholdInvitations(initialHhId);
+      this.householdService.loadHouseholdMembers(initialHhId);
+      this.householdService.loadHouseholdInvitations(initialHhId);
     }
 
     // Check for '?join=CODE' query parameter
@@ -125,9 +123,9 @@ export class HouseholdManagementComponent implements OnInit {
 
   public selectHousehold(id: string): void {
     this.selectedHouseholdId.set(id);
-    this.store.setSelectedHousehold(id);
-    this.store.loadHouseholdMembers(id);
-    this.store.loadHouseholdInvitations(id);
+    this.householdService.setSelectedHousehold(id);
+    this.householdService.loadHouseholdMembers(id);
+    this.householdService.loadHouseholdInvitations(id);
   }
 
   // Invite Management
@@ -151,7 +149,7 @@ export class HouseholdManagementComponent implements OnInit {
 
     this.isCreatingInvite.set(true);
     try {
-      const inv = await this.store.createInviteLink(
+      const inv = await this.householdService.createInviteLink(
         hh.id,
         this.inviteRole(),
         this.inviteEmail().trim() || undefined,
@@ -183,7 +181,7 @@ export class HouseholdManagementComponent implements OnInit {
   }
 
   public async revokeInvite(id: string): Promise<void> {
-    await this.store.revokeInvite(id);
+    await this.householdService.revokeInvite(id);
   }
 
   public async removeMember(userId: string, memberName: string): Promise<void> {
@@ -191,7 +189,7 @@ export class HouseholdManagementComponent implements OnInit {
     if (!hh) return;
 
     if (confirm(`Are you sure you want to remove ${memberName} from ${hh.name}?`)) {
-      await this.store.removeMember(hh.id, userId);
+      await this.householdService.removeMember(hh.id, userId);
     }
   }
 
@@ -217,7 +215,7 @@ export class HouseholdManagementComponent implements OnInit {
     this.isJoining.set(true);
     this.joinError.set(null);
 
-    const res = await this.store.acceptInviteCode(code);
+    const res = await this.householdService.acceptInviteCode(code);
     this.isJoining.set(false);
 
     if (res.success && res.household_id) {
@@ -257,7 +255,7 @@ export class HouseholdManagementComponent implements OnInit {
     const name = this.editName().trim();
     if (!name) return;
 
-    await this.store.updateHousehold(hh.id, {
+    await this.householdService.updateHousehold(hh.id, {
       name,
       code: this.editCode().trim() || undefined,
       contact_name: this.editContactName().trim() || undefined,
@@ -295,7 +293,7 @@ export class HouseholdManagementComponent implements OnInit {
 
     this.isCreatingHousehold.set(true);
     try {
-      const created = await this.store.createHousehold({
+      const created = await this.householdService.createHousehold({
         name,
         code: this.createCode().trim() || undefined,
         contact_name: this.createContactName().trim() || undefined,
@@ -331,7 +329,7 @@ export class HouseholdManagementComponent implements OnInit {
 
     this.isDeleting.set(true);
     try {
-      const success = await this.store.deleteHousehold(hh.id);
+      const success = await this.householdService.deleteHousehold(hh.id);
       if (success) {
         this.closeDeleteModal();
         if (this.isEditModalOpen()) {

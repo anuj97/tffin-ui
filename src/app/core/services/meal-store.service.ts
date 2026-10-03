@@ -1,36 +1,26 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import { SupabaseService } from './supabase.service';
 import { AuthService } from './auth.service';
+import { HouseholdService, DEFAULT_HOUSEHOLD } from './household.service';
+import { NotificationService } from './notification.service';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
 import { Household, HouseholdMember, HouseholdInvitation, HouseholdMemberRole } from '../models/household.model';
 import { MealSchedule, MealStockStatus, MealType, ShortageReportItem } from '../models/meal-schedule.model';
 import {
-  MOCK_HOUSEHOLDS,
-  MOCK_HOUSEHOLD_MEMBERS,
-  MOCK_INVITATIONS,
   MOCK_INGREDIENTS,
   MOCK_INVENTORY,
   MOCK_DISHES,
   generateMockSchedules
 } from '../mock/mock-data';
 
+export { DEFAULT_HOUSEHOLD };
+
 export function getTodayString(): string {
   const d = new Date();
   return d.toISOString().split('T')[0];
 }
-
-export const DEFAULT_HOUSEHOLD: Household = {
-  id: 'default-household-01',
-  name: 'Main Household',
-  code: 'HH-01',
-  contact_name: 'Primary Contact',
-  default_headcount: 3,
-  dietary_notes: 'Standard diet',
-  color_tag: '#6366f1',
-  is_active: true
-};
 
 export interface SlotHouseholdPlan {
   schedule: MealSchedule;
@@ -54,19 +44,29 @@ export interface DayMealSlot {
 export class MealStoreService {
   private supabase = inject(SupabaseService);
   private auth = inject(AuthService);
+  public householdService = inject(HouseholdService);
+  private notifications = inject(NotificationService);
 
-  // State Signals
-  public households = signal<Household[]>([DEFAULT_HOUSEHOLD]);
-  public householdMembers = signal<HouseholdMember[]>([]);
-  public householdInvitations = signal<HouseholdInvitation[]>([]);
-  public selectedHouseholdId = signal<string | null>(null); // null = "All Households"
+  // Delegated Household State Signals & Computeds
+  public households = this.householdService.households;
+  public householdMembers = this.householdService.householdMembers;
+  public householdInvitations = this.householdService.householdInvitations;
+  public selectedHouseholdId = this.householdService.selectedHouseholdId;
+  public authorizedHouseholds = this.householdService.authorizedHouseholds;
+  public authorizedHouseholdIds = this.householdService.authorizedHouseholdIds;
+  public activeHouseholds = this.householdService.activeHouseholds;
+  public effectiveHouseholdId = this.householdService.effectiveHouseholdId;
+  public householdsMap = this.householdService.householdsMap;
+  public selectedHousehold = this.householdService.selectedHousehold;
+
+  // Domain State Signals
   public ingredients = signal<Ingredient[]>([]);
   public inventory = signal<InventoryItem[]>([]);
   public dishes = signal<Dish[]>([]);
   public schedules = signal<MealSchedule[]>([]);
   public isLoading = signal<boolean>(false);
   public lastError = signal<string | null>(null);
-  public notification = signal<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+  public notification = this.notifications.notification;
   public isDebugMode = signal<boolean>(!this.supabase.hasClient);
 
   constructor() {
@@ -78,10 +78,22 @@ export class MealStoreService {
       if (this.supabase.hasClient && user) {
         untracked(() => {
           this.loadFromSupabase().catch(err => {
-            console.warn('Failed to re-sync store for user:', err);
+            console.warn('Failed to re-sync meal store for user:', err);
           });
         });
       }
+    });
+
+    // Auto-prune schedules when households are removed
+    effect(() => {
+      const activeIds = new Set(this.householdService.households().map(h => h.id));
+      untracked(() => {
+        const cur = this.schedules();
+        const filtered = cur.filter(s => !s.household_id || activeIds.has(s.household_id));
+        if (filtered.length !== cur.length) {
+          this.schedules.set(filtered);
+        }
+      });
     });
   }
 
@@ -106,41 +118,31 @@ export class MealStoreService {
   }
 
   public loadMockData(): void {
-    this.households.set([...MOCK_HOUSEHOLDS]);
-    this.householdMembers.set([...MOCK_HOUSEHOLD_MEMBERS]);
-    this.householdInvitations.set([...MOCK_INVITATIONS]);
+    this.householdService.loadMockData();
     this.ingredients.set([...MOCK_INGREDIENTS]);
     this.inventory.set([...MOCK_INVENTORY]);
     this.dishes.set([...MOCK_DISHES]);
     this.schedules.set(generateMockSchedules());
-    this.selectedHouseholdId.set(null);
   }
 
   public clearState(): void {
+    this.householdService.clearState();
     this.ingredients.set([]);
     this.inventory.set([]);
     this.dishes.set([]);
     this.schedules.set([]);
-    this.households.set([DEFAULT_HOUSEHOLD]);
-    this.selectedHouseholdId.set(null);
   }
 
   public async loadFromSupabase(): Promise<void> {
     try {
       this.lastError.set(null);
-      const userId = this.auth.currentUser()?.id;
-      const [hhs, ings, invs, dshs] = await Promise.all([
-        this.supabase.fetchHouseholds(userId),
+      await this.householdService.loadFromSupabase();
+
+      const [ings, invs, dshs] = await Promise.all([
         this.supabase.fetchIngredients(),
         this.supabase.fetchInventory(),
         this.supabase.fetchDishes()
       ]);
-
-      if (hhs && hhs.length > 0) {
-        this.households.set(hhs);
-      } else {
-        this.households.set([DEFAULT_HOUSEHOLD]);
-      }
 
       this.ingredients.set(ings);
       this.inventory.set(invs);
@@ -158,90 +160,12 @@ export class MealStoreService {
       );
       this.schedules.set(scheds);
     } catch (err: any) {
-      this.lastError.set(err.message || 'Failed to load from Supabase');
+      this.lastError.set(err.message || 'Failed to load meal store from Supabase');
       throw err;
     }
   }
 
   // Lookups & Computeds
-  // Authorized households that the current signed-in user is a part of
-  public authorizedHouseholds = computed(() => {
-    const user = this.auth.currentUser();
-    const all = this.households().filter(h => h.is_active);
-
-    if (!user) return all.length > 0 ? all : [DEFAULT_HOUSEHOLD];
-
-    // Unrestricted admin / kitchen staff can view all households
-    if (user.role === 'admin' || user.role === 'chef') {
-      return all.length > 0 ? all : [DEFAULT_HOUSEHOLD];
-    }
-
-    // Collect all permitted household IDs from:
-    // 1. user.household_ids array
-    // 2. user.household_id string
-    // 3. householdMembers signal where user_id matches
-    const allowedIds = new Set<string>();
-    if (user.household_ids && user.household_ids.length > 0) {
-      user.household_ids.forEach(id => allowedIds.add(id));
-    }
-    if (user.household_id) {
-      allowedIds.add(user.household_id);
-    }
-    for (const m of this.householdMembers()) {
-      if (m.user_id === user.id) {
-        allowedIds.add(m.household_id);
-      }
-    }
-
-    if (allowedIds.size > 0) {
-      const filtered = all.filter(h => allowedIds.has(h.id));
-      if (filtered.length > 0) {
-        return filtered;
-      }
-    }
-
-    // Fallback: If user role is owner and no specific ID is mapped, allow all active
-    if (user.role === 'owner') {
-      return all;
-    }
-
-    return [];
-  });
-
-  public authorizedHouseholdIds = computed(() => {
-    return new Set(this.authorizedHouseholds().map(h => h.id));
-  });
-
-  public activeHouseholds = computed(() => {
-    return this.authorizedHouseholds();
-  });
-
-  public effectiveHouseholdId = computed(() => {
-    const authList = this.authorizedHouseholds();
-    if (authList.length === 1) {
-      return authList[0].id;
-    }
-    const sel = this.selectedHouseholdId();
-    if (sel && this.authorizedHouseholdIds().has(sel)) {
-      return sel;
-    }
-    return null;
-  });
-
-  public householdsMap = computed(() => {
-    const map = new Map<string, Household>();
-    for (const h of this.households()) {
-      map.set(h.id, h);
-    }
-    return map;
-  });
-
-  public selectedHousehold = computed(() => {
-    const id = this.effectiveHouseholdId();
-    if (!id) return null;
-    return this.householdsMap().get(id) || null;
-  });
-
   public ingredientsMap = computed(() => {
     const map = new Map<string, Ingredient>();
     for (const ing of this.ingredients()) {
@@ -435,414 +359,54 @@ export class MealStoreService {
     return shortages.sort((a, b) => b.deficit - a.deficit);
   }
 
-  // Household Selection & Management
+  // Delegated Household Management Helpers
   public setSelectedHousehold(id: string | null): void {
-    this.selectedHouseholdId.set(id);
+    this.householdService.setSelectedHousehold(id);
   }
 
-  public async createHousehold(household: Partial<Household>): Promise<Household | null> {
-    const user = this.auth.currentUser();
-    const role = user?.role;
-    const isUnassignedUser = this.authorizedHouseholds().length === 0 || (!user?.household_ids || user.household_ids.length === 0);
-
-    if (role && !['admin', 'owner'].includes(role) && !isUnassignedUser) {
-      this.showNotification('Only kitchen administrators or unassigned members can create households.', 'error');
-      return null;
-    }
-
-    if (!this.supabase.hasClient) {
-      const newHh: Household = {
-        id: 'hh-' + Date.now(),
-        name: household.name || 'New Household',
-        code: household.code || `HH-${this.households().length + 1}`,
-        contact_name: household.contact_name || user?.fullName || '',
-        contact_phone: household.contact_phone || '',
-        address: household.address || '',
-        default_headcount: household.default_headcount || 2,
-        dietary_notes: household.dietary_notes || '',
-        color_tag: household.color_tag || '#6366f1',
-        is_active: household.is_active ?? true,
-        created_at: new Date().toISOString()
-      };
-      this.households.set([...this.households(), newHh]);
-
-      // If created by a member (or unassigned user), grant ownership and assign household
-      if (user) {
-        const isStaff = ['admin', 'chef'].includes(user.role);
-        if (!isStaff || isUnassignedUser) {
-          const newMember: HouseholdMember = {
-            id: 'hm-' + Date.now(),
-            household_id: newHh.id,
-            user_id: user.id,
-            role_in_household: 'owner',
-            username: user.username,
-            fullName: user.fullName || user.username
-          };
-          this.householdMembers.update(members => [...members, newMember]);
-
-          const currentIds = user.household_ids || [];
-          const updatedUser = {
-            ...user,
-            household_id: newHh.id,
-            household_ids: [...currentIds, newHh.id]
-          };
-          this.auth.currentUser.set(updatedUser);
-          localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-        }
-      }
-
-      this.selectedHouseholdId.set(newHh.id);
-      this.showNotification(`Created household: ${newHh.name}! You are now the household owner.`, 'success');
-      return newHh;
-    }
-
-    try {
-      const created = await this.supabase.createHousehold(household, user?.id);
-      this.households.set([...this.households(), created]);
-
-      if (user) {
-        const isStaff = ['admin', 'chef'].includes(user.role);
-        if (!isStaff || isUnassignedUser) {
-          try {
-            await this.supabase.clientInstance?.from('household_members').upsert(
-              {
-                household_id: created.id,
-                user_id: user.id,
-                role_in_household: 'owner'
-              },
-              { onConflict: 'household_id,user_id' }
-            );
-          } catch (memErr) {
-            console.warn('Could not insert household_member record:', memErr);
-          }
-
-          const currentIds = user.household_ids || [];
-          const updatedUser = {
-            ...user,
-            household_id: created.id,
-            household_ids: [...currentIds, created.id]
-          };
-          this.auth.currentUser.set(updatedUser);
-          localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-        }
-      }
-
-      this.selectedHouseholdId.set(created.id);
-      this.showNotification(`Created household: ${created.name}! You are now the household owner.`, 'success');
-      return created;
-    } catch (err: any) {
-      this.showNotification(`Failed to create household: ${err.message}`, 'error');
-      return null;
-    }
+  public createHousehold(household: Partial<Household>): Promise<Household | null> {
+    return this.householdService.createHousehold(household);
   }
 
-  public async updateHousehold(id: string, updates: Partial<Household>): Promise<void> {
-    const role = this.auth.currentUser()?.role;
-    if (role && !['admin', 'owner'].includes(role)) {
-      this.showNotification('Only kitchen administrators can modify households.', 'error');
-      return;
-    }
-
-    if (!this.supabase.hasClient) {
-      const list = this.households().map(h => (h.id === id ? { ...h, ...updates } : h));
-      this.households.set(list);
-      this.showNotification('Household updated', 'success');
-      return;
-    }
-
-    try {
-      const updated = await this.supabase.updateHousehold(id, updates);
-      const list = this.households().map(h => (h.id === id ? updated : h));
-      this.households.set(list);
-      this.showNotification(`Updated household: ${updated.name}`, 'success');
-    } catch (err: any) {
-      this.showNotification(`Failed to update household: ${err.message}`, 'error');
-    }
+  public updateHousehold(id: string, updates: Partial<Household>): Promise<Household | null> {
+    return this.householdService.updateHousehold(id, updates);
   }
 
-  public async toggleHouseholdActive(id: string): Promise<void> {
-    const role = this.auth.currentUser()?.role;
-    if (role && !['admin', 'owner'].includes(role)) {
-      this.showNotification('Only kitchen administrators can activate/deactivate households.', 'error');
-      return;
-    }
-
-    const hh = this.householdsMap().get(id);
-    if (!hh) return;
-    await this.updateHousehold(id, { is_active: !hh.is_active });
+  public toggleHouseholdActive(id: string): Promise<void> {
+    return this.householdService.toggleHouseholdActive(id);
   }
 
-  public async deleteHousehold(id: string): Promise<boolean> {
-    const user = this.auth.currentUser();
-    const role = user?.role;
-    const isHouseholdOwner = this.householdMembers().some(
-      m => m.household_id === id && m.user_id === user?.id && m.role_in_household === 'owner'
-    );
-
-    if (!['admin', 'owner'].includes(role || '') && !isHouseholdOwner) {
-      this.showNotification('Only administrators or household owners can delete a household.', 'error');
-      return false;
-    }
-
-    const hh = this.householdsMap().get(id);
-    const hhName = hh?.name || 'Household';
-
-    if (!this.supabase.hasClient) {
-      // 1. Remove household
-      this.households.update(list => list.filter(h => h.id !== id));
-      // 2. Cascade remove members
-      this.householdMembers.update(list => list.filter(m => m.household_id !== id));
-      // 3. Cascade remove invitations
-      this.householdInvitations.update(list => list.filter(i => i.household_id !== id));
-      // 4. Cascade remove meal schedules
-      this.schedules.update(list => list.filter(s => s.household_id !== id));
-
-      // 5. Update user's household_ids if current user was part of it
-      if (user?.household_ids?.includes(id)) {
-        const updatedIds = user.household_ids.filter(x => x !== id);
-        const updatedUser = { ...user, household_ids: updatedIds };
-        this.auth.currentUser.set(updatedUser);
-        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-      }
-
-      // 6. Reset selected household if it was the deleted one
-      if (this.selectedHouseholdId() === id) {
-        this.selectedHouseholdId.set(null);
-      }
-
-      this.showNotification(`Deleted household: ${hhName}`, 'success');
-      return true;
-    }
-
-    try {
-      await this.supabase.deleteHousehold(id, user?.id);
-      this.households.update(list => list.filter(h => h.id !== id));
-      this.householdMembers.update(list => list.filter(m => m.household_id !== id));
-      this.householdInvitations.update(list => list.filter(i => i.household_id !== id));
-      this.schedules.update(list => list.filter(s => s.household_id !== id));
-
-      if (user?.household_ids?.includes(id)) {
-        const updatedIds = user.household_ids.filter(x => x !== id);
-        const updatedUser = { ...user, household_ids: updatedIds };
-        this.auth.currentUser.set(updatedUser);
-        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-      }
-
-      if (this.selectedHouseholdId() === id) {
-        this.selectedHouseholdId.set(null);
-      }
-
-      this.showNotification(`Deleted household: ${hhName}`, 'success');
-      return true;
-    } catch (err: any) {
-      this.showNotification(`Failed to delete household: ${err.message}`, 'error');
-      return false;
-    }
+  public deleteHousehold(id: string): Promise<boolean> {
+    return this.householdService.deleteHousehold(id);
   }
 
-  // Household Members & Invitations Management
-  public async loadHouseholdMembers(householdId: string): Promise<void> {
-    if (!householdId) return;
-    if (!this.supabase.hasClient) {
-      const members = this.householdMembers().filter(m => m.household_id === householdId);
-      if (members.length === 0) {
-        // Fallback to MOCK_HOUSEHOLD_MEMBERS
-        const mockFiltered = MOCK_HOUSEHOLD_MEMBERS.filter(m => m.household_id === householdId);
-        if (mockFiltered.length > 0) {
-          this.householdMembers.update(curr => [...curr, ...mockFiltered]);
-        }
-      }
-      return;
-    }
-
-    try {
-      const members = await this.supabase.fetchHouseholdMembers(householdId);
-      this.householdMembers.set(members);
-    } catch (err: any) {
-      console.warn('Failed to load household members:', err.message);
-    }
+  public loadHouseholdMembers(householdId: string): Promise<void> {
+    return this.householdService.loadHouseholdMembers(householdId);
   }
 
-  public async loadHouseholdInvitations(householdId: string): Promise<void> {
-    if (!householdId) return;
-    if (!this.supabase.hasClient) {
-      return;
-    }
-
-    try {
-      const invs = await this.supabase.fetchHouseholdInvitations(householdId);
-      this.householdInvitations.set(invs);
-    } catch (err: any) {
-      console.warn('Failed to load household invitations:', err.message);
-    }
+  public loadHouseholdInvitations(householdId: string): Promise<void> {
+    return this.householdService.loadHouseholdInvitations(householdId);
   }
 
-  public async createInviteLink(
+  public createInviteLink(
     householdId: string,
     role: HouseholdMemberRole = 'member',
     email?: string,
     validDays: number = 7
   ): Promise<HouseholdInvitation> {
-    const hh = this.householdsMap().get(householdId);
-    const user = this.auth.currentUser();
-
-    if (!this.supabase.hasClient) {
-      const code = 'TFFN-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-      const expires = new Date(Date.now() + validDays * 86400000).toISOString();
-      const newInv: HouseholdInvitation = {
-        id: 'inv-' + Date.now(),
-        household_id: householdId,
-        invited_by: user?.id,
-        invite_code: code,
-        email: email || undefined,
-        role_in_household: role,
-        status: 'pending',
-        expires_at: expires,
-        created_at: new Date().toISOString(),
-        household_name: hh?.name || 'Household'
-      };
-
-      this.householdInvitations.update(current => [newInv, ...current]);
-      this.showNotification(`Generated invite link with code: ${code}`, 'success');
-      return newInv;
-    }
-
-    try {
-      const inv = await this.supabase.createHouseholdInvitation(
-        householdId,
-        user?.id || '',
-        role,
-        email,
-        validDays
-      );
-      inv.household_name = hh?.name;
-      this.householdInvitations.update(current => [inv, ...current]);
-      this.showNotification(`Generated invite link: ${inv.invite_code}`, 'success');
-      return inv;
-    } catch (err: any) {
-      this.showNotification(`Failed to generate invite: ${err.message}`, 'error');
-      throw err;
-    }
+    return this.householdService.createInviteLink(householdId, role, email, validDays);
   }
 
-  public async revokeInvite(invitationId: string): Promise<void> {
-    if (!this.supabase.hasClient) {
-      this.householdInvitations.update(list => 
-        list.map(i => i.id === invitationId ? { ...i, status: 'revoked' as const } : i)
-      );
-      this.showNotification('Invitation revoked', 'info');
-      return;
-    }
-
-    try {
-      await this.supabase.revokeHouseholdInvitation(invitationId);
-      this.householdInvitations.update(list => 
-        list.map(i => i.id === invitationId ? { ...i, status: 'revoked' as const } : i)
-      );
-      this.showNotification('Invitation revoked', 'info');
-    } catch (err: any) {
-      this.showNotification(`Failed to revoke invitation: ${err.message}`, 'error');
-    }
+  public revokeInvite(invitationId: string): Promise<void> {
+    return this.householdService.revokeInvite(invitationId);
   }
 
-  public async removeMember(householdId: string, userId: string): Promise<void> {
-    const role = this.auth.currentUser()?.role;
-    if (role && !['admin', 'owner'].includes(role)) {
-      this.showNotification('Only owners or administrators can remove members.', 'error');
-      return;
-    }
-
-    if (!this.supabase.hasClient) {
-      this.householdMembers.update(list => 
-        list.filter(m => !(m.household_id === householdId && m.user_id === userId))
-      );
-      this.showNotification('Member removed from household', 'info');
-      return;
-    }
-
-    try {
-      await this.supabase.removeHouseholdMember(householdId, userId);
-      this.householdMembers.update(list => 
-        list.filter(m => !(m.household_id === householdId && m.user_id === userId))
-      );
-      this.showNotification('Member removed from household', 'info');
-    } catch (err: any) {
-      this.showNotification(`Failed to remove member: ${err.message}`, 'error');
-    }
+  public removeMember(householdId: string, userId: string): Promise<void> {
+    return this.householdService.removeMember(householdId, userId);
   }
 
-  public async acceptInviteCode(
-    code: string
-  ): Promise<{ success: boolean; message: string; household_id?: string; household_name?: string }> {
-    const cleanCode = code.trim().toUpperCase();
-    const user = this.auth.currentUser();
-
-    if (!user) {
-      return { success: false, message: 'Please sign in first to accept the invitation' };
-    }
-
-    if (!this.supabase.hasClient) {
-      const inv = this.householdInvitations().find(i => i.invite_code.toUpperCase() === cleanCode);
-      if (!inv) {
-        return { success: false, message: 'Invalid or unknown invitation code.' };
-      }
-      if (inv.status !== 'pending') {
-        return { success: false, message: `This invitation code is already ${inv.status}.` };
-      }
-
-      this.householdInvitations.update(list =>
-        list.map(i => i.id === inv.id ? { ...i, status: 'accepted' as const, accepted_by: user.id } : i)
-      );
-
-      const newMember: HouseholdMember = {
-        id: 'hm-' + Date.now(),
-        household_id: inv.household_id,
-        user_id: user.id,
-        role_in_household: inv.role_in_household,
-        username: user.username,
-        fullName: user.fullName || user.username,
-        created_at: new Date().toISOString()
-      };
-      this.householdMembers.update(m => [...m, newMember]);
-
-      const currentIds = user.household_ids || [];
-      if (!currentIds.includes(inv.household_id)) {
-        const updatedUser = { ...user, household_ids: [...currentIds, inv.household_id] };
-        this.auth.currentUser.set(updatedUser);
-        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-      }
-
-      const hh = this.householdsMap().get(inv.household_id);
-      this.showNotification(`Successfully joined ${hh?.name || 'household'}!`, 'success');
-      return {
-        success: true,
-        message: `Successfully joined ${hh?.name || 'household'}!`,
-        household_id: inv.household_id,
-        household_name: hh?.name
-      };
-    }
-
-    try {
-      const res = await this.supabase.acceptHouseholdInvitation(cleanCode, user.id);
-      if (res.success && res.household_id) {
-        const currentIds = user.household_ids || [];
-        if (!currentIds.includes(res.household_id)) {
-          const updatedUser = { ...user, household_ids: [...currentIds, res.household_id] };
-          this.auth.currentUser.set(updatedUser);
-          localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-        }
-        await this.loadFromSupabase();
-        await this.loadHouseholdMembers(res.household_id);
-        this.showNotification(res.message, 'success');
-      } else {
-        this.showNotification(res.message, 'error');
-      }
-      return res;
-    } catch (err: any) {
-      const msg = err.message || 'Error processing invitation code';
-      this.showNotification(msg, 'error');
-      return { success: false, message: msg };
-    }
+  public acceptInviteCode(code: string): Promise<{ success: boolean; message: string; household_id?: string; household_name?: string }> {
+    return this.householdService.acceptInviteCode(code);
   }
 
   // State Mutations with Optimistic Updates
@@ -854,7 +418,7 @@ export class MealStoreService {
   ): Promise<void> {
     const effectiveHhId = householdId || this.effectiveHouseholdId() || this.authorizedHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
 
-    if (!this.authorizedHouseholdIds().has(effectiveHhId)) {
+    if (!this.householdService.canPlanMeals(effectiveHhId)) {
       this.showNotification('You do not have permission to modify meals for this household.', 'error');
       return;
     }
@@ -892,7 +456,7 @@ export class MealStoreService {
   ): Promise<void> {
     const targetHhId = household_id || this.effectiveHouseholdId() || this.authorizedHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
 
-    if (!this.authorizedHouseholdIds().has(targetHhId)) {
+    if (!this.householdService.canPlanMeals(targetHhId)) {
       this.showNotification('You do not have permission to plan meals for this household.', 'error');
       return;
     }
@@ -1087,9 +651,6 @@ export class MealStoreService {
   }
 
   public showNotification(message: string, type: 'success' | 'info' | 'error' = 'info'): void {
-    this.notification.set({ message, type });
-    setTimeout(() => {
-      this.notification.set(null);
-    }, 4000);
+    this.notifications.show(message, type);
   }
 }

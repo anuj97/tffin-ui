@@ -3,6 +3,7 @@ import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/ro
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { filter } from 'rxjs/operators';
+import { HouseholdService } from '../../../core/services/household.service';
 import { MealStoreService } from '../../../core/services/meal-store.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Household } from '../../../core/models/household.model';
@@ -15,6 +16,7 @@ import { Household } from '../../../core/models/household.model';
   styleUrl: './navbar.scss'
 })
 export class NavbarComponent {
+  public householdService = inject(HouseholdService);
   public store = inject(MealStoreService);
   public auth = inject(AuthService);
   private router = inject(Router);
@@ -51,14 +53,14 @@ export class NavbarComponent {
 
   public currentUser = this.auth.currentUser;
   public isLocalDebug = this.auth.isLocalDebug;
-  public households = this.store.households;
-  public activeHouseholds = this.store.activeHouseholds;
-  public authorizedHouseholds = this.store.authorizedHouseholds;
-  public selectedHouseholdId = this.store.selectedHouseholdId;
+  public households = this.householdService.households;
+  public activeHouseholds = this.householdService.activeHouseholds;
+  public authorizedHouseholds = this.householdService.authorizedHouseholds;
+  public selectedHouseholdId = this.householdService.selectedHouseholdId;
 
-  public isSingleHouseholdUser = computed(() => this.authorizedHouseholds().length === 1);
-  public singleHousehold = computed(() => this.authorizedHouseholds()[0] || null);
-  public canManageHouseholds = computed(() => ['admin', 'owner'].includes(this.currentUser()?.role || ''));
+  public isSingleHouseholdUser = this.householdService.isSingleHouseholdUser;
+  public singleHousehold = this.householdService.singleHousehold;
+  public canManageHouseholds = computed(() => this.householdService.canManageAnyHousehold());
 
   public resetMockData(): void {
     this.store.loadMockData();
@@ -78,7 +80,7 @@ export class NavbarComponent {
   public currentHouseholdName = computed(() => {
     const id = this.selectedHouseholdId();
     if (!id) return 'All Households';
-    const found = this.store.householdsMap().get(id);
+    const found = this.householdService.householdsMap().get(id);
     return found ? found.name : 'All Households';
   });
 
@@ -88,12 +90,12 @@ export class NavbarComponent {
 
   public onSelectHousehold(event: Event): void {
     const val = (event.target as HTMLSelectElement).value;
-    this.store.setSelectedHousehold(val ? val : null);
+    this.householdService.setSelectedHousehold(val ? val : null);
   }
 
   public openManageModal(): void {
     if (!this.canManageHouseholds()) {
-      this.store.showNotification('Only administrators can manage households', 'error');
+      this.store.showNotification('Only administrators or household owners can manage households', 'error');
       return;
     }
     this.resetForm();
@@ -118,7 +120,7 @@ export class NavbarComponent {
     const name = this.newName().trim();
     if (!name) return;
 
-    await this.store.createHousehold({
+    await this.householdService.createHousehold({
       name,
       code: this.newCode().trim() || undefined,
       contact_name: this.newContactName().trim() || undefined,
@@ -132,12 +134,12 @@ export class NavbarComponent {
   }
 
   public async toggleActive(id: string): Promise<void> {
-    await this.store.toggleHouseholdActive(id);
+    await this.householdService.toggleHouseholdActive(id);
   }
 
   public async confirmDelete(id: string, name: string): Promise<void> {
     if (confirm(`Are you sure you want to permanently delete the household "${name}"?\nAll associated meal plans and invitations will be removed.`)) {
-      await this.store.deleteHousehold(id);
+      await this.householdService.deleteHousehold(id);
     }
   }
 

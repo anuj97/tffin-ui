@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { provideRouter, ActivatedRoute } from '@angular/router';
 import { HouseholdManagementComponent } from './household-management';
+import { HouseholdService } from '../../core/services/household.service';
 import { MealStoreService } from '../../core/services/meal-store.service';
 import { AuthService } from '../../core/services/auth.service';
 import { AppUser } from '../../core/models/user.model';
@@ -53,12 +54,16 @@ describe('HouseholdManagementComponent', () => {
     }
   ]);
 
-  const mockStore = {
+  const mockHouseholdService = {
     activeHouseholds: signal(mockHouseholds),
+    authorizedHouseholds: signal(mockHouseholds),
     effectiveHouseholdId: signal('mock-hh-02'),
     householdsMap: signal(new Map([['mock-hh-02', mockHouseholds[0]]])),
     householdMembers: mockMembersSignal,
     householdInvitations: mockInvitationsSignal,
+    canManage: jasmine.createSpy('canManage').and.returnValue(true),
+    isOwner: jasmine.createSpy('isOwner').and.returnValue(true),
+    canPlanMeals: jasmine.createSpy('canPlanMeals').and.returnValue(true),
     loadHouseholdMembers: jasmine.createSpy('loadHouseholdMembers'),
     loadHouseholdInvitations: jasmine.createSpy('loadHouseholdInvitations'),
     createInviteLink: jasmine.createSpy('createInviteLink').and.resolveTo({
@@ -84,7 +89,11 @@ describe('HouseholdManagementComponent', () => {
       name: 'New Household',
       default_headcount: 3
     }),
-    deleteHousehold: jasmine.createSpy('deleteHousehold').and.resolveTo(true),
+    deleteHousehold: jasmine.createSpy('deleteHousehold').and.resolveTo(true)
+  };
+
+  const mockStore = {
+    ...mockHouseholdService,
     showNotification: jasmine.createSpy('showNotification')
   };
 
@@ -97,6 +106,7 @@ describe('HouseholdManagementComponent', () => {
       imports: [HouseholdManagementComponent],
       providers: [
         provideRouter([]),
+        { provide: HouseholdService, useValue: mockHouseholdService },
         { provide: MealStoreService, useValue: mockStore },
         { provide: AuthService, useValue: mockAuth },
         {
@@ -125,7 +135,7 @@ describe('HouseholdManagementComponent', () => {
     expect(component.isInviteModalOpen()).toBeTrue();
 
     await component.generateInvite();
-    expect(mockStore.createInviteLink).toHaveBeenCalled();
+    expect(mockHouseholdService.createInviteLink).toHaveBeenCalled();
     expect(component.generatedInvite()?.invite_code).toBe('TFFN-NEW99');
   });
 
@@ -139,7 +149,7 @@ describe('HouseholdManagementComponent', () => {
     component.joinCodeInput.set('TFFN-TEST01');
     await component.submitJoinCode();
 
-    expect(mockStore.acceptInviteCode).toHaveBeenCalledWith('TFFN-TEST01');
+    expect(mockHouseholdService.acceptInviteCode).toHaveBeenCalledWith('TFFN-TEST01');
     expect(component.isJoinModalOpen()).toBeFalse();
   });
 
@@ -151,13 +161,13 @@ describe('HouseholdManagementComponent', () => {
     expect(component.isDeleteModalOpen()).toBeFalse();
   });
 
-  it('should call store.deleteHousehold and close modal when confirmed', async () => {
+  it('should call householdService.deleteHousehold and close modal when confirmed', async () => {
     component.openDeleteModal();
     expect(component.isDeleteModalOpen()).toBeTrue();
 
     await component.confirmDeleteHousehold();
 
-    expect(mockStore.deleteHousehold).toHaveBeenCalledWith('mock-hh-02');
+    expect(mockHouseholdService.deleteHousehold).toHaveBeenCalledWith('mock-hh-02');
     expect(component.isDeleteModalOpen()).toBeFalse();
   });
 
@@ -178,7 +188,7 @@ describe('HouseholdManagementComponent', () => {
 
     await component.submitCreateHousehold();
 
-    expect(mockStore.createHousehold).toHaveBeenCalledWith(jasmine.objectContaining({
+    expect(mockHouseholdService.createHousehold).toHaveBeenCalledWith(jasmine.objectContaining({
       name: 'New Household',
       default_headcount: 3
     }));

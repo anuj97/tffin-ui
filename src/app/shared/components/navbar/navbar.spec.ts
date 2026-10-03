@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { NavbarComponent } from './navbar';
+import { HouseholdService } from '../../../core/services/household.service';
 import { MealStoreService } from '../../../core/services/meal-store.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { SupabaseService } from '../../../core/services/supabase.service';
@@ -31,6 +32,24 @@ describe('NavbarComponent (Hamburger Menu)', () => {
     { id: 'mock-hh-02', name: 'Verma Residence', is_active: true, default_headcount: 4 }
   ]);
 
+  const mockHouseholdService = {
+    households: mockHouseholdsSignal,
+    activeHouseholds: mockHouseholdsSignal,
+    authorizedHouseholds: mockHouseholdsSignal,
+    selectedHouseholdId: signal<string | null>(null),
+    isSingleHouseholdUser: signal(false),
+    singleHousehold: signal(null),
+    canManageAnyHousehold: jasmine.createSpy('canManageAnyHousehold').and.returnValue(true),
+    householdsMap: signal(new Map<string, Household>([
+      ['mock-hh-01', { id: 'mock-hh-01', name: 'Main Household', is_active: true, default_headcount: 3 }],
+      ['mock-hh-02', { id: 'mock-hh-02', name: 'Verma Residence', is_active: true, default_headcount: 4 }]
+    ])),
+    setSelectedHousehold: jasmine.createSpy('setSelectedHousehold'),
+    createHousehold: jasmine.createSpy('createHousehold'),
+    toggleHouseholdActive: jasmine.createSpy('toggleHouseholdActive'),
+    deleteHousehold: jasmine.createSpy('deleteHousehold')
+  };
+
   const mockStoreService = {
     households: mockHouseholdsSignal,
     activeHouseholds: mockHouseholdsSignal,
@@ -53,6 +72,7 @@ describe('NavbarComponent (Hamburger Menu)', () => {
       providers: [
         provideRouter([]),
         { provide: AuthService, useValue: mockAuthService },
+        { provide: HouseholdService, useValue: mockHouseholdService },
         { provide: MealStoreService, useValue: mockStoreService },
         {
           provide: SupabaseService,

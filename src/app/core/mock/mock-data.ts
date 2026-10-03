@@ -15,7 +15,8 @@ export const MOCK_USERS: Record<string, AppUser> = {
     phone: '+91 98765 43210',
     dietary_preferences: 'No restrictions - taste testing all diets',
     bio: 'Kitchen operational director and master menu overseer.',
-    household_ids: [] // Unrestricted: can view all households
+    household_ids: [], // Unrestricted: can view all households
+    memberships: []
   },
   chef: {
     id: 'user-chef',
@@ -26,7 +27,8 @@ export const MOCK_USERS: Record<string, AppUser> = {
     phone: '+91 98220 11223',
     dietary_preferences: 'Culinary expert - specializes in North Indian and Gujarati thali',
     bio: 'Head Chef with 12 years experience in high-volume catering.',
-    household_ids: [] // Unrestricted: kitchen prep for all
+    household_ids: [], // Unrestricted: kitchen prep for all
+    memberships: []
   },
   verma: {
     id: 'user-verma',
@@ -38,7 +40,10 @@ export const MOCK_USERS: Record<string, AppUser> = {
     dietary_preferences: 'Strictly vegetarian, low oil, mild chili spice',
     bio: 'Verma Residence head of household.',
     household_id: 'mock-hh-02',
-    household_ids: ['mock-hh-02'] // Strictly Verma Residence
+    household_ids: ['mock-hh-02'], // Strictly Verma Residence
+    memberships: [
+      { household_id: 'mock-hh-02', role: 'owner' }
+    ]
   },
   priya: {
     id: 'user-priya',
@@ -50,7 +55,10 @@ export const MOCK_USERS: Record<string, AppUser> = {
     dietary_preferences: 'Jain cuisine (strictly no onion, garlic, or root vegetables)',
     bio: 'Apartment 402 resident.',
     household_id: 'mock-hh-03',
-    household_ids: ['mock-hh-03'] // Strictly Apartment 301
+    household_ids: ['mock-hh-03'], // Strictly Apartment 301
+    memberships: [
+      { household_id: 'mock-hh-03', role: 'owner' }
+    ]
   },
   multi: {
     id: 'user-multi',
@@ -61,7 +69,11 @@ export const MOCK_USERS: Record<string, AppUser> = {
     phone: '+91 99000 77889',
     dietary_preferences: 'Balanced diet, gluten-sensitive on weekdays',
     bio: 'Coordinator between Verma & Apt 301 residences.',
-    household_ids: ['mock-hh-02', 'mock-hh-03'] // Both households
+    household_ids: ['mock-hh-02', 'mock-hh-03'], // Both households
+    memberships: [
+      { household_id: 'mock-hh-02', role: 'member' },
+      { household_id: 'mock-hh-03', role: 'member' }
+    ]
   },
   new_user: {
     id: 'user-new',
@@ -72,7 +84,8 @@ export const MOCK_USERS: Record<string, AppUser> = {
     phone: '+91 91234 56789',
     dietary_preferences: 'Eggitarian, high protein',
     bio: 'New kitchen subscriber onboarding this week.',
-    household_ids: [] // Not assigned to any household yet
+    household_ids: [], // Not assigned to any household yet
+    memberships: []
   }
 };
 
