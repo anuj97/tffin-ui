@@ -1,4 +1,5 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
+import { LumberjackService } from '@ngworker/lumberjack';
 
 export interface AppNotification {
   message: string;
@@ -9,6 +10,7 @@ export interface AppNotification {
   providedIn: 'root'
 })
 export class NotificationService {
+  private lumberjack = inject(LumberjackService);
   public notification = signal<AppNotification | null>(null);
   private timeoutId: any = null;
 
@@ -16,6 +18,13 @@ export class NotificationService {
     if (this.timeoutId) {
       clearTimeout(this.timeoutId);
     }
+
+    if (type === 'error') {
+      this.lumberjack.logWarning(`Displaying error notification: "${message}"`, undefined, 'NotificationService');
+    } else {
+      this.lumberjack.logInfo(`Displaying ${type} notification: "${message}"`, undefined, 'NotificationService');
+    }
+
     this.notification.set({ message, type });
     this.timeoutId = setTimeout(() => {
       this.notification.set(null);

@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import { provideLumberjack } from '@ngworker/lumberjack';
 import { MealStoreService, DEFAULT_HOUSEHOLD } from './meal-store.service';
 import { AuthService } from './auth.service';
 import { SupabaseService } from './supabase.service';
@@ -36,6 +37,7 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
 
     TestBed.configureTestingModule({
       providers: [
+        provideLumberjack(),
         MealStoreService,
         { provide: AuthService, useValue: mockAuthService },
         {

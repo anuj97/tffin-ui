@@ -1,5 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { LumberjackService } from '@ngworker/lumberjack';
 import { SupabaseService } from './supabase.service';
 import { AppUser } from '../models/user.model';
 import { MOCK_USERS } from '../mock/mock-data';
@@ -19,6 +20,7 @@ export const LOCAL_DEBUG_USER: AppUser = {
   providedIn: 'root'
 })
 export class AuthService {
+  private lumberjack = inject(LumberjackService);
   private supabase = inject(SupabaseService);
   private router = inject(Router);
 
@@ -32,7 +34,12 @@ export class AuthService {
   }
 
   private checkIfLocalDebug(): boolean {
-    return localStorage.getItem(DEBUG_FLAG_KEY) === 'true' || sessionStorage.getItem(DEBUG_FLAG_KEY) === 'true';
+    if (typeof localStorage === 'undefined') return false;
+    return (
+      localStorage.getItem(DEBUG_FLAG_KEY) === 'true' ||
+      sessionStorage.getItem(DEBUG_FLAG_KEY) === 'true' ||
+      !this.supabase.hasClient
+    );
   }
 
   private loadStoredUser(): AppUser | null {
@@ -42,7 +49,7 @@ export class AuthService {
         return JSON.parse(stored) as AppUser;
       }
     } catch (e) {
-      console.warn('Failed to parse cached auth session:', e);
+      this.lumberjack.logWarning('Failed to parse cached auth session', { error: String(e) }, 'AuthService');
     }
     return null;
   }
@@ -52,6 +59,8 @@ export class AuthService {
     if (!client) return;
 
     client.auth.onAuthStateChange(async (event, session) => {
+      this.lumberjack.logInfo(`Supabase auth state changed: ${event}`, { userId: session?.user?.id }, 'AuthService');
+
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
         if (session?.user) {
           // If we are currently in local debug mode without OAuth redirect tokens, don't override
@@ -72,6 +81,7 @@ export class AuthService {
             });
 
             if (userProfile) {
+              this.lumberjack.logInfo('OAuth user profile synchronized successfully', { username: userProfile.username, id: userProfile.id }, 'AuthService');
               this.currentUser.set(userProfile);
               this.isLocalDebug.set(false);
               localStorage.setItem(STORAGE_KEY, JSON.stringify(userProfile));
@@ -83,14 +93,15 @@ export class AuthService {
                 this.router.navigate(['/dashboard']);
               }
             }
-          } catch (err) {
-            console.error('Failed to sync OAuth session profile:', err);
+          } catch (err: any) {
+            this.lumberjack.logError('Failed to sync OAuth session profile', { error: err?.message || String(err) }, 'AuthService');
           } finally {
             this.isAuthenticating.set(false);
           }
         }
       } else if (event === 'SIGNED_OUT') {
         if (!this.isLocalDebug()) {
+          this.lumberjack.logInfo('User signed out via Supabase auth', undefined, 'AuthService');
           this.clearLocalSession();
         }
       }
@@ -107,8 +118,8 @@ export class AuthService {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(refreshed));
         return refreshed;
       }
-    } catch (e) {
-      console.warn('Failed to refresh user profile:', e);
+    } catch (e: any) {
+      this.lumberjack.logWarning('Failed to refresh user profile', { error: e?.message || String(e) }, 'AuthService');
     }
     return user;
   }
@@ -118,6 +129,7 @@ export class AuthService {
   ): Promise<{ success: boolean; error?: string; user?: AppUser }> {
     const current = this.currentUser();
     if (!current) {
+      this.lumberjack.logWarning('Cannot update profile: no user currently signed in', undefined, 'AuthService');
       return { success: false, error: 'No user is currently signed in' };
     }
 
@@ -140,20 +152,24 @@ export class AuthService {
         MOCK_USERS[personaKey] = { ...MOCK_USERS[personaKey], ...updated };
       }
 
+      this.lumberjack.logInfo('Updated profile in local debug mode', { username: updated.username }, 'AuthService');
       return { success: true, user: updated };
     }
 
     try {
       const res = await this.supabase.updateAppUserProfile(current.id, updates);
       if (!res.success) {
+        this.lumberjack.logWarning(`Failed to update profile: ${res.error}`, undefined, 'AuthService');
         return { success: false, error: res.error || 'Failed to update user profile' };
       }
 
       const updatedUser = res.data || { ...current, ...updates };
       this.currentUser.set(updatedUser);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+      this.lumberjack.logInfo('User profile saved successfully in Supabase', { userId: current.id }, 'AuthService');
       return { success: true, user: updatedUser };
     } catch (err: any) {
+      this.lumberjack.logError('Error occurred while saving profile', { error: err?.message || String(err), userId: current.id }, 'AuthService');
       return { success: false, error: err.message || 'Error occurred while saving profile' };
     }
   }
@@ -164,14 +180,17 @@ export class AuthService {
   ): Promise<{ success: boolean; error?: string }> {
     const current = this.currentUser();
     if (!current) {
+      this.lumberjack.logWarning('Cannot update password: no user signed in', undefined, 'AuthService');
       return { success: false, error: 'No user is currently signed in' };
     }
 
     if (!newPassword || newPassword.length < 6) {
+      this.lumberjack.logWarning('Password update rejected: New password too short', undefined, 'AuthService');
       return { success: false, error: 'New password must be at least 6 characters long' };
     }
 
     if (this.isLocalDebug() || !this.supabase.hasClient) {
+      this.lumberjack.logInfo('Password updated simulated in local debug mode', undefined, 'AuthService');
       return { success: true };
     }
 
@@ -189,6 +208,7 @@ export class AuthService {
       ...matched
     };
 
+    this.lumberjack.logInfo('Logging in with local debug persona', { personaKey, username: user.username, role: user.role }, 'AuthService');
     this.currentUser.set(user);
     this.isLocalDebug.set(true);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
@@ -197,9 +217,11 @@ export class AuthService {
   }
 
   public async loginWithGoogle(): Promise<{ success: boolean; error?: string }> {
+    this.lumberjack.logInfo('Initiating Google OAuth login flow', undefined, 'AuthService');
     this.isAuthenticating.set(true);
 
     if (!this.supabase.clientInstance) {
+      this.lumberjack.logWarning('Google login failed: Supabase credentials not configured in environment', undefined, 'AuthService');
       this.isAuthenticating.set(false);
       return {
         success: false,
@@ -220,13 +242,15 @@ export class AuthService {
       });
 
       if (error) {
+        this.lumberjack.logWarning(`Google OAuth signInWithOAuth error: ${error.message}`, undefined, 'AuthService');
         this.isAuthenticating.set(false);
         return { success: false, error: error.message };
       }
 
-      // Browser redirects to Google OAuth consent
+      this.lumberjack.logInfo('Redirecting user to Google OAuth provider', undefined, 'AuthService');
       return { success: true };
     } catch (err: any) {
+      this.lumberjack.logError('Failed to initiate Google login', { error: err?.message || String(err) }, 'AuthService');
       this.isAuthenticating.set(false);
       return {
         success: false,
@@ -240,6 +264,7 @@ export class AuthService {
     password: string,
     rememberMe: boolean = true
   ): Promise<{ success: boolean; error?: string }> {
+    this.lumberjack.logInfo('Authenticating user credentials', { username, rememberMe }, 'AuthService');
     this.isAuthenticating.set(true);
 
     // If Supabase client is not configured, support local offline fallback
@@ -260,6 +285,7 @@ export class AuthService {
         return this.loginLocalDebug('chef');
       }
 
+      this.lumberjack.logWarning('Login rejected: Supabase not configured and invalid debug credentials', { username }, 'AuthService');
       return {
         success: false,
         error: 'Supabase credentials are not configured. Click one of the test persona buttons below or sign in with admin / admin123.'
@@ -271,12 +297,14 @@ export class AuthService {
       this.isAuthenticating.set(false);
 
       if (!user) {
+        this.lumberjack.logWarning('Login failed: Invalid credentials provided', { username }, 'AuthService');
         return {
           success: false,
           error: 'Invalid username or password. Please try again.'
         };
       }
 
+      this.lumberjack.logInfo('User successfully authenticated', { username: user.username, role: user.role, id: user.id }, 'AuthService');
       this.currentUser.set(user);
       this.isLocalDebug.set(false);
       localStorage.removeItem(DEBUG_FLAG_KEY);
@@ -291,6 +319,7 @@ export class AuthService {
 
       return { success: true };
     } catch (err: any) {
+      this.lumberjack.logError('Connection error during authentication', { error: err?.message || String(err), username }, 'AuthService');
       this.isAuthenticating.set(false);
       return {
         success: false,
@@ -300,12 +329,13 @@ export class AuthService {
   }
 
   public async logout(): Promise<void> {
+    this.lumberjack.logInfo('Logging out user', { username: this.currentUser()?.username }, 'AuthService');
     try {
       if (this.supabase.clientInstance) {
         await this.supabase.clientInstance.auth.signOut();
       }
-    } catch (e) {
-      console.warn('Supabase sign-out error:', e);
+    } catch (e: any) {
+      this.lumberjack.logWarning('Supabase sign-out error', { error: e?.message || String(e) }, 'AuthService');
     }
     this.clearLocalSession();
     this.router.navigate(['/login']);

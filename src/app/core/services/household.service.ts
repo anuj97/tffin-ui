@@ -2,6 +2,7 @@ import { Injectable, computed, effect, inject, signal, untracked } from '@angula
 import { SupabaseService } from './supabase.service';
 import { AuthService } from './auth.service';
 import { NotificationService } from './notification.service';
+import { LumberjackService } from '@ngworker/lumberjack';
 import { Household, HouseholdMember, HouseholdInvitation, HouseholdMemberRole } from '../models/household.model';
 import { UserHouseholdMembership } from '../models/user.model';
 import {
@@ -25,6 +26,7 @@ export const DEFAULT_HOUSEHOLD: Household = {
   providedIn: 'root'
 })
 export class HouseholdService {
+  private lumberjack = inject(LumberjackService);
   private supabase = inject(SupabaseService);
   private auth = inject(AuthService);
   private notifications = inject(NotificationService);
@@ -47,7 +49,7 @@ export class HouseholdService {
       if (this.supabase.hasClient && user) {
         untracked(() => {
           this.loadFromSupabase().catch(err => {
-            console.warn('Failed to load households for user session:', err);
+            this.lumberjack.logWarning('Failed to load households for user session', { error: err?.message || String(err) }, 'HouseholdService');
           });
         });
       }
@@ -66,7 +68,7 @@ export class HouseholdService {
       await this.loadFromSupabase();
       this.isDebugMode.set(false);
     } catch (err: any) {
-      console.warn('Failed to load households from Supabase, activating local mock data:', err);
+      this.lumberjack.logWarning('Failed to load households from Supabase, activating local mock data', { error: err?.message || String(err) }, 'HouseholdService');
       this.isDebugMode.set(true);
       this.loadMockData();
     } finally {
@@ -96,10 +98,12 @@ export class HouseholdService {
 
       if (hhs && hhs.length > 0) {
         this.households.set(hhs);
+        this.lumberjack.logInfo(`Loaded ${hhs.length} households from Supabase`, undefined, 'HouseholdService');
       } else {
         this.households.set([DEFAULT_HOUSEHOLD]);
       }
     } catch (err: any) {
+      this.lumberjack.logError('Failed to load households from Supabase', { error: err?.message || String(err) }, 'HouseholdService');
       this.lastError.set(err.message || 'Failed to load households from Supabase');
       throw err;
     }
@@ -287,7 +291,9 @@ export class HouseholdService {
     const role = user?.role;
     const isUnassignedUser = this.authorizedHouseholds().length === 0 || (!user?.household_ids || user.household_ids.length === 0);
 
+    this.lumberjack.logInfo('Initiating household creation', { name: household.name, code: household.code, userId: user?.id }, 'HouseholdService');
     if (role && !['admin', 'owner'].includes(role) && !isUnassignedUser) {
+      this.lumberjack.logWarning('Household creation rejected: User unauthorized', { role, userId: user?.id }, 'HouseholdService');
       this.notifications.show('Only kitchen administrators or unassigned members can create households.', 'error');
       return null;
     }
@@ -335,6 +341,7 @@ export class HouseholdService {
       }
 
       this.selectedHouseholdId.set(newHh.id);
+      this.lumberjack.logInfo('Household created in local mode', { id: newHh.id, name: newHh.name }, 'HouseholdService');
       this.notifications.show(`Created household: ${newHh.name}! You are now the household owner.`, 'success');
       return newHh;
     }
@@ -355,8 +362,8 @@ export class HouseholdService {
               },
               { onConflict: 'household_id,user_id' }
             );
-          } catch (memErr) {
-            console.warn('Could not insert household_member record:', memErr);
+          } catch (memErr: any) {
+            this.lumberjack.logWarning('Could not insert household_member record', { error: memErr?.message || String(memErr) }, 'HouseholdService');
           }
 
           const currentIds = user.household_ids || [];
@@ -373,9 +380,11 @@ export class HouseholdService {
       }
 
       this.selectedHouseholdId.set(created.id);
+      this.lumberjack.logInfo('Household created via Supabase backend', { id: created.id, name: created.name }, 'HouseholdService');
       this.notifications.show(`Created household: ${created.name}! You are now the household owner.`, 'success');
       return created;
     } catch (err: any) {
+      this.lumberjack.logError('Failed to create household', { error: err?.message || String(err) }, 'HouseholdService');
       this.notifications.show(`Failed to create household: ${err.message}`, 'error');
       return null;
     }
@@ -383,10 +392,12 @@ export class HouseholdService {
 
   public async updateHousehold(id: string, updates: Partial<Household>): Promise<Household | null> {
     if (!this.canManage(id)) {
+      this.lumberjack.logWarning('Unauthorized update attempt for household', { id }, 'HouseholdService');
       this.notifications.show('Only household owners or kitchen administrators can modify households.', 'error');
       return null;
     }
 
+    this.lumberjack.logInfo('Updating household configuration', { id, fields: Object.keys(updates) }, 'HouseholdService');
     if (!this.supabase.hasClient) {
       let updatedHh: Household | null = null;
       const list = this.households().map(h => {
@@ -397,6 +408,7 @@ export class HouseholdService {
         return h;
       });
       this.households.set(list);
+      this.lumberjack.logInfo('Household updated in local mode', { id }, 'HouseholdService');
       this.notifications.show('Household updated', 'success');
       return updatedHh;
     }
@@ -405,9 +417,11 @@ export class HouseholdService {
       const updated = await this.supabase.updateHousehold(id, updates);
       const list = this.households().map(h => (h.id === id ? updated : h));
       this.households.set(list);
+      this.lumberjack.logInfo('Household updated via Supabase backend', { id, name: updated.name }, 'HouseholdService');
       this.notifications.show(`Updated household: ${updated.name}`, 'success');
       return updated;
     } catch (err: any) {
+      this.lumberjack.logError('Failed to update household', { error: err?.message || String(err), id }, 'HouseholdService');
       this.notifications.show(`Failed to update household: ${err.message}`, 'error');
       return null;
     }
@@ -415,17 +429,20 @@ export class HouseholdService {
 
   public async toggleHouseholdActive(id: string): Promise<void> {
     if (!this.canManage(id)) {
+      this.lumberjack.logWarning('Unauthorized toggle active attempt', { id }, 'HouseholdService');
       this.notifications.show('Only household owners or kitchen administrators can activate/deactivate households.', 'error');
       return;
     }
 
     const hh = this.householdsMap().get(id);
     if (!hh) return;
+    this.lumberjack.logInfo('Toggling household active status', { id, newState: !hh.is_active }, 'HouseholdService');
     await this.updateHousehold(id, { is_active: !hh.is_active });
   }
 
   public async deleteHousehold(id: string): Promise<boolean> {
     if (!this.canManage(id)) {
+      this.lumberjack.logWarning('Unauthorized delete household attempt', { id }, 'HouseholdService');
       this.notifications.show('Only administrators or household owners can delete a household.', 'error');
       return false;
     }
@@ -434,6 +451,7 @@ export class HouseholdService {
     const hhName = hh?.name || 'Household';
     const user = this.auth.currentUser();
 
+    this.lumberjack.logInfo('Initiating household deletion', { id, name: hhName }, 'HouseholdService');
     if (!this.supabase.hasClient) {
       // 1. Remove household
       this.households.update(list => list.filter(h => h.id !== id));
@@ -461,6 +479,7 @@ export class HouseholdService {
         this.selectedHouseholdId.set(null);
       }
 
+      this.lumberjack.logInfo('Household deleted locally', { id, name: hhName }, 'HouseholdService');
       this.notifications.show(`Deleted household: ${hhName}`, 'success');
       return true;
     }
@@ -488,9 +507,11 @@ export class HouseholdService {
         this.selectedHouseholdId.set(null);
       }
 
+      this.lumberjack.logInfo('Household deleted in Supabase', { id, name: hhName }, 'HouseholdService');
       this.notifications.show(`Deleted household: ${hhName}`, 'success');
       return true;
     } catch (err: any) {
+      this.lumberjack.logError('Failed to delete household', { error: err?.message || String(err), id }, 'HouseholdService');
       this.notifications.show(`Failed to delete household: ${err.message}`, 'error');
       return false;
     }
@@ -514,7 +535,7 @@ export class HouseholdService {
       const members = await this.supabase.fetchHouseholdMembers(householdId);
       this.householdMembers.set(members);
     } catch (err: any) {
-      console.warn('Failed to load household members:', err.message);
+      this.lumberjack.logWarning('Failed to load household members', { error: err?.message || String(err), householdId }, 'HouseholdService');
     }
   }
 
@@ -528,7 +549,7 @@ export class HouseholdService {
       const invs = await this.supabase.fetchHouseholdInvitations(householdId);
       this.householdInvitations.set(invs);
     } catch (err: any) {
-      console.warn('Failed to load household invitations:', err.message);
+      this.lumberjack.logWarning('Failed to load household invitations', { error: err?.message || String(err), householdId }, 'HouseholdService');
     }
   }
 
@@ -538,7 +559,9 @@ export class HouseholdService {
     email?: string,
     validDays: number = 7
   ): Promise<HouseholdInvitation> {
+    this.lumberjack.logInfo('Generating household invite link', { householdId, role, email, validDays }, 'HouseholdService');
     if (!this.canManage(householdId)) {
+      this.lumberjack.logWarning('Unauthorized invite generation attempt', { householdId }, 'HouseholdService');
       this.notifications.show('Only household owners or administrators can generate invite links.', 'error');
       throw new Error('Unauthorized to generate invite link');
     }
@@ -563,6 +586,7 @@ export class HouseholdService {
       };
 
       this.householdInvitations.update(current => [newInv, ...current]);
+      this.lumberjack.logInfo('Invite created locally', { code, householdId }, 'HouseholdService');
       this.notifications.show(`Generated invite link with code: ${code}`, 'success');
       return newInv;
     }
@@ -577,15 +601,18 @@ export class HouseholdService {
       );
       inv.household_name = hh?.name;
       this.householdInvitations.update(current => [inv, ...current]);
+      this.lumberjack.logInfo('Invite created in Supabase', { code: inv.invite_code, householdId }, 'HouseholdService');
       this.notifications.show(`Generated invite link: ${inv.invite_code}`, 'success');
       return inv;
     } catch (err: any) {
+      this.lumberjack.logError('Failed to generate invite', { error: err?.message || String(err), householdId }, 'HouseholdService');
       this.notifications.show(`Failed to generate invite: ${err.message}`, 'error');
       throw err;
     }
   }
 
   public async revokeInvite(invitationId: string): Promise<void> {
+    this.lumberjack.logInfo('Revoking household invite', { invitationId }, 'HouseholdService');
     if (!this.supabase.hasClient) {
       this.householdInvitations.update(list => 
         list.map(i => i.id === invitationId ? { ...i, status: 'revoked' as const } : i)
@@ -599,14 +626,18 @@ export class HouseholdService {
       this.householdInvitations.update(list => 
         list.map(i => i.id === invitationId ? { ...i, status: 'revoked' as const } : i)
       );
+      this.lumberjack.logInfo('Invitation revoked in Supabase', { invitationId }, 'HouseholdService');
       this.notifications.show('Invitation revoked', 'info');
     } catch (err: any) {
+      this.lumberjack.logError('Failed to revoke invitation', { error: err?.message || String(err), invitationId }, 'HouseholdService');
       this.notifications.show(`Failed to revoke invitation: ${err.message}`, 'error');
     }
   }
 
   public async removeMember(householdId: string, userId: string): Promise<void> {
+    this.lumberjack.logInfo('Removing member from household', { householdId, userId }, 'HouseholdService');
     if (!this.canManage(householdId)) {
+      this.lumberjack.logWarning('Unauthorized remove member attempt', { householdId, userId }, 'HouseholdService');
       this.notifications.show('Only owners or administrators can remove members.', 'error');
       return;
     }
@@ -615,6 +646,7 @@ export class HouseholdService {
       this.householdMembers.update(list => 
         list.filter(m => !(m.household_id === householdId && m.user_id === userId))
       );
+      this.lumberjack.logInfo('Member removed locally', { householdId, userId }, 'HouseholdService');
       this.notifications.show('Member removed from household', 'info');
       return;
     }
@@ -624,8 +656,10 @@ export class HouseholdService {
       this.householdMembers.update(list => 
         list.filter(m => !(m.household_id === householdId && m.user_id === userId))
       );
+      this.lumberjack.logInfo('Member removed in Supabase', { householdId, userId }, 'HouseholdService');
       this.notifications.show('Member removed from household', 'info');
     } catch (err: any) {
+      this.lumberjack.logError('Failed to remove member', { error: err?.message || String(err), householdId, userId }, 'HouseholdService');
       this.notifications.show(`Failed to remove member: ${err.message}`, 'error');
     }
   }
@@ -636,16 +670,20 @@ export class HouseholdService {
     const cleanCode = code.trim().toUpperCase();
     const user = this.auth.currentUser();
 
+    this.lumberjack.logInfo('Processing accept invite code', { code: cleanCode, userId: user?.id }, 'HouseholdService');
     if (!user) {
+      this.lumberjack.logWarning('Invite accept rejected: user not signed in', undefined, 'HouseholdService');
       return { success: false, message: 'Please sign in first to accept the invitation' };
     }
 
     if (!this.supabase.hasClient) {
       const inv = this.householdInvitations().find(i => i.invite_code.toUpperCase() === cleanCode);
       if (!inv) {
+        this.lumberjack.logWarning('Invalid or unknown invite code', { code: cleanCode }, 'HouseholdService');
         return { success: false, message: 'Invalid or unknown invitation code.' };
       }
       if (inv.status !== 'pending') {
+        this.lumberjack.logWarning(`Invite code already ${inv.status}`, { code: cleanCode }, 'HouseholdService');
         return { success: false, message: `This invitation code is already ${inv.status}.` };
       }
 
@@ -677,6 +715,7 @@ export class HouseholdService {
       }
 
       const hh = this.householdsMap().get(inv.household_id);
+      this.lumberjack.logInfo('Invite accepted locally', { code: cleanCode, householdId: inv.household_id }, 'HouseholdService');
       this.notifications.show(`Successfully joined ${hh?.name || 'household'}!`, 'success');
       return {
         success: true,
@@ -692,13 +731,16 @@ export class HouseholdService {
         await this.loadFromSupabase();
         await this.auth.refreshCurrentUser();
         await this.loadHouseholdMembers(res.household_id);
+        this.lumberjack.logInfo('Invite accepted in Supabase', { code: cleanCode, householdId: res.household_id }, 'HouseholdService');
         this.notifications.show(res.message, 'success');
       } else {
+        this.lumberjack.logWarning('Failed to accept invite in Supabase', { code: cleanCode, message: res.message }, 'HouseholdService');
         this.notifications.show(res.message, 'error');
       }
       return res;
     } catch (err: any) {
       const msg = err.message || 'Error processing invitation code';
+      this.lumberjack.logError('Error accepting invitation', { error: err?.message || String(err), code: cleanCode }, 'HouseholdService');
       this.notifications.show(msg, 'error');
       return { success: false, message: msg };
     }

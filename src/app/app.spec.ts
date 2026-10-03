@@ -1,12 +1,13 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { provideLumberjack } from '@ngworker/lumberjack';
 import { App } from './app';
 
 describe('App', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideRouter([])]
+      providers: [provideRouter([]), provideLumberjack()]
     }).compileComponents();
   });
 
@@ -16,4 +17,3 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 });
-

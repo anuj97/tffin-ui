@@ -1,6 +1,7 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { environment } from '../../../environments/environment';
+import { LumberjackService } from '@ngworker/lumberjack';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
@@ -17,6 +18,7 @@ export interface SupabaseConfig {
   providedIn: 'root'
 })
 export class SupabaseService {
+  private lumberjack = inject(LumberjackService);
   private client: SupabaseClient | null = null;
 
   public config = signal<SupabaseConfig>({
@@ -34,6 +36,7 @@ export class SupabaseService {
     const current = this.config();
     if (current.url && current.key) {
       try {
+        this.lumberjack.logInfo('Initializing Supabase client', { url: current.url }, 'SupabaseService');
         this.client = createClient(current.url, current.key, {
           auth: {
             persistSession: true,
@@ -45,6 +48,7 @@ export class SupabaseService {
       } catch (err: any) {
         this.isConnected.set(false);
         this.connectionError.set(err.message || 'Failed to initialize Supabase client');
+        this.lumberjack.logError('Failed to initialize Supabase client', { error: err?.message || String(err) }, 'SupabaseService');
       }
     } else {
       this.client = null;
@@ -65,14 +69,17 @@ export class SupabaseService {
       if (error) {
         this.isConnected.set(false);
         this.connectionError.set(error.message);
+        this.lumberjack.logWarning(`Supabase connection test failed: ${error.message}`, undefined, 'SupabaseService');
         return { success: false, error: error.message };
       }
       this.isConnected.set(true);
       this.connectionError.set(null);
+      this.lumberjack.logInfo('Supabase database connection established successfully', undefined, 'SupabaseService');
       return { success: true };
     } catch (err: any) {
       this.isConnected.set(false);
       this.connectionError.set(err.message || 'Unknown network error');
+      this.lumberjack.logError('Supabase connection test threw exception', { error: err?.message || String(err) }, 'SupabaseService');
       return { success: false, error: err.message };
     }
   }
@@ -96,6 +103,9 @@ export class SupabaseService {
         .maybeSingle();
 
       if (error || !userRow) {
+        if (error) {
+          this.lumberjack.logWarning(`Failed to fetch app user ${userId}: ${error.message}`, { userId }, 'SupabaseService');
+        }
         return null;
       }
 
@@ -135,7 +145,7 @@ export class SupabaseService {
         created_at: userRow.created_at || undefined
       };
     } catch (e) {
-      console.warn('Error fetching app user by ID:', e);
+      this.lumberjack.logWarning('Error fetching app user by ID', { error: (e as any)?.message || String(e), userId }, 'SupabaseService');
       return null;
     }
   }
@@ -149,6 +159,7 @@ export class SupabaseService {
     }
 
     try {
+      this.lumberjack.logInfo('Updating app user profile', { userId, fields: Object.keys(updates) }, 'SupabaseService');
       const payload: Record<string, any> = {};
       if (updates.fullName !== undefined) payload['full_name'] = updates.fullName.trim();
       if (updates.username !== undefined) payload['username'] = updates.username.trim().toLowerCase();
@@ -187,6 +198,7 @@ export class SupabaseService {
       }
 
       if (error) {
+        this.lumberjack.logWarning(`Error updating app user profile for ${userId}: ${error.message}`, { userId }, 'SupabaseService');
         return { success: false, error: error.message };
       }
 
@@ -204,8 +216,10 @@ export class SupabaseService {
       }
 
       const refreshed = await this.fetchAppUserById(userId);
+      this.lumberjack.logInfo('User profile updated successfully', { userId }, 'SupabaseService');
       return { success: true, data: refreshed || undefined };
     } catch (e: any) {
+      this.lumberjack.logError('Failed to update user profile', { error: e?.message || String(e), userId }, 'SupabaseService');
       return { success: false, error: e.message || 'Failed to update user profile' };
     }
   }
@@ -220,6 +234,7 @@ export class SupabaseService {
     }
 
     try {
+      this.lumberjack.logInfo('Updating user password via RPC', { userId }, 'SupabaseService');
       let authUpdated = false;
       try {
         const { error: authErr } = await this.client.auth.updateUser({
@@ -240,17 +255,22 @@ export class SupabaseService {
 
       if (rpcErr) {
         if (authUpdated) {
+          this.lumberjack.logInfo('Auth session password updated successfully', undefined, 'SupabaseService');
           return { success: true };
         }
+        this.lumberjack.logWarning(`RPC password update failed: ${rpcErr.message}`, undefined, 'SupabaseService');
         return { success: false, error: rpcErr.message };
       }
 
       if (rpcSuccess === false) {
+        this.lumberjack.logWarning('Password update rejected: Current password mismatch', undefined, 'SupabaseService');
         return { success: false, error: 'Current password does not match' };
       }
 
+      this.lumberjack.logInfo('Password updated successfully for user', { userId }, 'SupabaseService');
       return { success: true };
     } catch (e: any) {
+      this.lumberjack.logError('Exception during password update', { error: e?.message || String(e), userId }, 'SupabaseService');
       return { success: false, error: e.message || 'Failed to update password' };
     }
   }
@@ -262,6 +282,7 @@ export class SupabaseService {
   }): Promise<AppUser | null> {
     if (!this.client) return null;
 
+    this.lumberjack.logInfo('Ensuring OAuth app user record exists', { id: authUser.id, email: authUser.email }, 'SupabaseService');
     // Check if user already exists in app_users
     const existing = await this.fetchAppUserById(authUser.id);
     if (existing) {
@@ -302,7 +323,7 @@ export class SupabaseService {
         .single();
 
       if (error) {
-        console.warn('Fallback app_users upsert warning:', error.message);
+        this.lumberjack.logWarning(`Fallback app_users upsert warning: ${error.message}`, undefined, 'SupabaseService');
       }
 
       const refreshed = await this.fetchAppUserById(authUser.id);
@@ -320,7 +341,7 @@ export class SupabaseService {
         avatar_url: avatarUrl || undefined
       };
     } catch (e) {
-      console.warn('Fallback creation of OAuth app user failed:', e);
+      this.lumberjack.logWarning('Fallback creation of OAuth app user failed', { error: (e as any)?.message || String(e) }, 'SupabaseService');
       return null;
     }
   }
@@ -331,22 +352,26 @@ export class SupabaseService {
       throw new Error('Supabase client is not configured. Please check environment variables.');
     }
 
+    this.lumberjack.logInfo('Verifying app user credentials via RPC', { username }, 'SupabaseService');
     const { data, error } = await this.client.rpc('verify_app_user', {
       p_username: username.trim(),
       p_password: password
     });
 
     if (error) {
+      this.lumberjack.logError('Credential verification error', { error: error?.message || String(error), username }, 'SupabaseService');
       throw new Error(error.message);
     }
 
     if (!data || data.length === 0) {
+      this.lumberjack.logWarning('User credentials invalid or not found', { username }, 'SupabaseService');
       return null;
     }
 
     const row = data[0];
     const fullUser = await this.fetchAppUserById(row.id);
     if (fullUser) {
+      this.lumberjack.logInfo('User credentials verified with full profile', { username, userId: fullUser.id }, 'SupabaseService');
       return fullUser;
     }
 
@@ -359,6 +384,7 @@ export class SupabaseService {
       role: (row.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole
     }));
 
+    this.lumberjack.logInfo('User credentials verified successfully', { username, userId: row.id }, 'SupabaseService');
     return {
       id: row.id,
       username: row.username,
@@ -393,7 +419,7 @@ export class SupabaseService {
       .select('*')
       .order('name');
     if (error) {
-      console.warn('Could not fetch households (table may not exist yet):', error.message);
+      this.lumberjack.logWarning(`Could not fetch households: ${error.message}`, undefined, 'SupabaseService');
       return [];
     }
     return data || [];
@@ -402,6 +428,7 @@ export class SupabaseService {
   public async createHousehold(household: Partial<Household>, userId?: string): Promise<Household> {
     if (!this.client) throw new Error('Supabase client not active');
 
+    this.lumberjack.logInfo('Creating household in Supabase', { name: household.name, code: household.code, userId }, 'SupabaseService');
     // 1. Try calling the create_household stored procedure (SECURITY DEFINER)
     try {
       const { data: rpcData, error: rpcError } = await this.client.rpc('create_household', {
@@ -419,14 +446,15 @@ export class SupabaseService {
       if (!rpcError && rpcData) {
         const result = Array.isArray(rpcData) ? rpcData[0] : rpcData;
         if (result && result.id) {
+          this.lumberjack.logInfo('Household created successfully via RPC', { id: result.id, name: result.name }, 'SupabaseService');
           return result as Household;
         }
       }
       if (rpcError) {
-        console.warn('create_household RPC call returned error, falling back to direct insert:', rpcError.message);
+        this.lumberjack.logWarning(`create_household RPC error, falling back to direct insert: ${rpcError.message}`, undefined, 'SupabaseService');
       }
-    } catch (rpcErr) {
-      console.warn('create_household RPC threw exception, falling back to direct insert:', rpcErr);
+    } catch (rpcErr: any) {
+      this.lumberjack.logWarning('create_household RPC exception, falling back to direct insert', { error: rpcErr?.message || String(rpcErr) }, 'SupabaseService');
     }
 
     // 2. Direct table insert fallback
@@ -435,25 +463,34 @@ export class SupabaseService {
       .insert(household)
       .select()
       .single();
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to insert household record', { error: error?.message || String(error) }, 'SupabaseService');
+      throw error;
+    }
+    this.lumberjack.logInfo('Household created successfully via direct insert', { id: data.id, name: data.name }, 'SupabaseService');
     return data;
   }
 
   public async updateHousehold(id: string, updates: Partial<Household>): Promise<Household> {
     if (!this.client) throw new Error('Supabase client not active');
+    this.lumberjack.logInfo('Updating household in Supabase', { id, fields: Object.keys(updates) }, 'SupabaseService');
     const { data, error } = await this.client
       .from('households')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to update household in Supabase', { error: error?.message || String(error), id }, 'SupabaseService');
+      throw error;
+    }
     return data;
   }
 
   public async deleteHousehold(id: string, userId?: string): Promise<void> {
     if (!this.client) return;
 
+    this.lumberjack.logInfo('Deleting household from Supabase', { id, userId }, 'SupabaseService');
     // 1. Try calling delete_household stored procedure (SECURITY DEFINER)
     try {
       const { data: rpcData, error: rpcError } = await this.client.rpc('delete_household', {
@@ -462,10 +499,11 @@ export class SupabaseService {
       });
 
       if (!rpcError && rpcData === true) {
+        this.lumberjack.logInfo('Household deleted via RPC', { id }, 'SupabaseService');
         return;
       }
-    } catch (rpcErr) {
-      console.warn('delete_household RPC call failed, falling back to direct delete:', rpcErr);
+    } catch (rpcErr: any) {
+      this.lumberjack.logWarning('delete_household RPC call failed, falling back to direct delete', { error: rpcErr?.message || String(rpcErr) }, 'SupabaseService');
     }
 
     // 2. Direct delete fallback
@@ -473,7 +511,11 @@ export class SupabaseService {
       .from('households')
       .delete()
       .eq('id', id);
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to delete household', { error: error?.message || String(error), id }, 'SupabaseService');
+      throw error;
+    }
+    this.lumberjack.logInfo('Household deleted via direct delete', { id }, 'SupabaseService');
   }
 
   // Household Members & Invitations
@@ -520,7 +562,7 @@ export class SupabaseService {
       .eq('household_id', householdId);
 
     if (error) {
-      console.warn('Could not fetch household members:', error.message);
+      this.lumberjack.logWarning(`Could not fetch household members: ${error.message}`, undefined, 'SupabaseService');
       return [];
     }
 
@@ -545,7 +587,7 @@ export class SupabaseService {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.warn('Could not fetch household invitations:', error.message);
+      this.lumberjack.logWarning(`Could not fetch household invitations: ${error.message}`, undefined, 'SupabaseService');
       return [];
     }
     return data || [];
@@ -559,6 +601,7 @@ export class SupabaseService {
     validDays: number = 7
   ): Promise<HouseholdInvitation> {
     if (!this.client) throw new Error('Supabase client not active');
+    this.lumberjack.logInfo('Creating household invitation via RPC', { householdId, invitedBy, role, email, validDays }, 'SupabaseService');
     const { data, error } = await this.client.rpc('create_household_invitation', {
       p_household_id: householdId,
       p_invited_by: invitedBy,
@@ -567,8 +610,12 @@ export class SupabaseService {
       p_valid_days: validDays
     });
 
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to create household invitation', { error: error?.message || String(error), householdId }, 'SupabaseService');
+      throw error;
+    }
     const row = data[0];
+    this.lumberjack.logInfo('Created household invitation successfully', { inviteCode: row.invite_code, householdId }, 'SupabaseService');
     return {
       id: row.id,
       household_id: row.household_id,
@@ -586,38 +633,55 @@ export class SupabaseService {
     userId: string
   ): Promise<{ success: boolean; message: string; household_id?: string; household_name?: string; role_in_household?: string }> {
     if (!this.client) throw new Error('Supabase client not active');
+    this.lumberjack.logInfo('Accepting household invitation via RPC', { inviteCode, userId }, 'SupabaseService');
     const { data, error } = await this.client.rpc('accept_household_invitation', {
       p_invite_code: inviteCode.trim(),
       p_user_id: userId
     });
 
-    if (error) throw error;
-    return data[0];
+    if (error) {
+      this.lumberjack.logError('Failed to accept household invitation', { error: error?.message || String(error), inviteCode }, 'SupabaseService');
+      throw error;
+    }
+    const result = data[0];
+    this.lumberjack.logInfo('Processed invitation acceptance', { success: result.success, message: result.message }, 'SupabaseService');
+    return result;
   }
 
   public async revokeHouseholdInvitation(invitationId: string): Promise<void> {
     if (!this.client) return;
+    this.lumberjack.logInfo('Revoking household invitation', { invitationId }, 'SupabaseService');
     const { error } = await this.client
       .from('household_invitations')
       .update({ status: 'revoked' })
       .eq('id', invitationId);
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to revoke household invitation', { error: error?.message || String(error), invitationId }, 'SupabaseService');
+      throw error;
+    }
   }
 
   public async removeHouseholdMember(householdId: string, userId: string): Promise<void> {
     if (!this.client) return;
+    this.lumberjack.logInfo('Removing household member', { householdId, userId }, 'SupabaseService');
     const { error } = await this.client
       .from('household_members')
       .delete()
       .eq('household_id', householdId)
       .eq('user_id', userId);
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to remove household member', { error: error?.message || String(error), householdId, userId }, 'SupabaseService');
+      throw error;
+    }
   }
 
   public async fetchIngredients(): Promise<Ingredient[]> {
     if (!this.client) return [];
     const { data, error } = await this.client.from('ingredients').select('*').order('name');
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to fetch ingredients', { error: error?.message || String(error) }, 'SupabaseService');
+      throw error;
+    }
     return data || [];
   }
 
@@ -627,7 +691,10 @@ export class SupabaseService {
       .from('inventory')
       .select('*, ingredient:ingredients(*)')
       .order('updated_at', { ascending: false });
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to fetch inventory', { error: error?.message || String(error) }, 'SupabaseService');
+      throw error;
+    }
     return data || [];
   }
 
@@ -648,7 +715,10 @@ export class SupabaseService {
         )
       `)
       .order('name');
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to fetch dishes', { error: error?.message || String(error) }, 'SupabaseService');
+      throw error;
+    }
     return (data as unknown as Dish[]) || [];
   }
 
@@ -685,13 +755,17 @@ export class SupabaseService {
     }
 
     const { data, error } = await query;
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to fetch meal schedule', { error: error?.message || String(error), startDate, endDate }, 'SupabaseService');
+      throw error;
+    }
     return (data as unknown as MealSchedule[]) || [];
   }
 
   // Mutations
   public async updateHeadcountRPC(household_id: string, date: string, meal: MealType, delta: number): Promise<number> {
     if (!this.client) throw new Error('Supabase client not active');
+    this.lumberjack.logInfo('Updating meal headcount via RPC', { household_id, date, meal, delta }, 'SupabaseService');
     // Try calling with household_id, with fallback to legacy RPC if needed
     try {
       const { data, error } = await this.client.rpc('update_meal_headcount', {
@@ -703,13 +777,15 @@ export class SupabaseService {
       if (error) throw error;
       return data as number;
     } catch (e: any) {
-      // Fallback to legacy single-household RPC
       const { data, error } = await this.client.rpc('update_meal_headcount', {
         p_date: date,
         p_meal: meal,
         p_delta: delta
       });
-      if (error) throw error;
+      if (error) {
+        this.lumberjack.logError('Failed to update meal headcount via RPC', { error: error?.message || String(error), household_id, date, meal }, 'SupabaseService');
+        throw error;
+      }
       return data as number;
     }
   }
@@ -722,6 +798,7 @@ export class SupabaseService {
     household_id: string
   ): Promise<MealSchedule> {
     if (!this.client) throw new Error('Supabase client not active');
+    this.lumberjack.logInfo('Upserting meal schedule', { schedule_date, meal_type, dish_id, headcount, household_id }, 'SupabaseService');
     const { data, error } = await this.client
       .from('meal_schedule')
       .upsert(
@@ -749,12 +826,16 @@ export class SupabaseService {
         )
       `)
       .single();
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to upsert meal schedule', { error: error?.message || String(error), schedule_date, meal_type, dish_id }, 'SupabaseService');
+      throw error;
+    }
     return data as unknown as MealSchedule;
   }
 
   public async updateInventory(ingredient_id: string, quantity: number, min_threshold?: number): Promise<void> {
     if (!this.client) throw new Error('Supabase client not active');
+    this.lumberjack.logInfo('Updating inventory in Supabase', { ingredient_id, quantity, min_threshold }, 'SupabaseService');
     const payload: any = {
       ingredient_id,
       quantity,
@@ -766,17 +847,24 @@ export class SupabaseService {
     const { error } = await this.client
       .from('inventory')
       .upsert(payload, { onConflict: 'ingredient_id' });
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to update inventory', { error: error?.message || String(error), ingredient_id }, 'SupabaseService');
+      throw error;
+    }
   }
 
   public async createIngredient(ingredient: Omit<Ingredient, 'id'>, initialStock: number = 0, minThreshold: number = 0): Promise<Ingredient> {
     if (!this.client) throw new Error('Supabase client not active');
+    this.lumberjack.logInfo('Creating ingredient in Supabase', { name: ingredient.name, category: ingredient.category }, 'SupabaseService');
     const { data: ingData, error: ingError } = await this.client
       .from('ingredients')
       .insert(ingredient)
       .select()
       .single();
-    if (ingError) throw ingError;
+    if (ingError) {
+      this.lumberjack.logError('Failed to insert ingredient', { error: ingError?.message || String(ingError), name: ingredient.name }, 'SupabaseService');
+      throw ingError;
+    }
 
     // Create inventory record
     await this.client.from('inventory').insert({
@@ -790,12 +878,16 @@ export class SupabaseService {
 
   public async createDish(dish: { name: string; cook_notes?: string }, ingredients: { ingredient_id: string; qty_per_person: number }[]): Promise<void> {
     if (!this.client) throw new Error('Supabase client not active');
+    this.lumberjack.logInfo('Creating dish in Supabase', { name: dish.name, ingredientsCount: ingredients.length }, 'SupabaseService');
     const { data: dishData, error: dishError } = await this.client
       .from('dishes')
       .insert(dish)
       .select()
       .single();
-    if (dishError) throw dishError;
+    if (dishError) {
+      this.lumberjack.logError('Failed to insert dish', { error: dishError?.message || String(dishError), name: dish.name }, 'SupabaseService');
+      throw dishError;
+    }
 
     if (ingredients.length > 0) {
       const rows = ingredients.map(ing => ({
@@ -804,13 +896,20 @@ export class SupabaseService {
         qty_per_person: ing.qty_per_person
       }));
       const { error: ingError } = await this.client.from('recipe_ingredients').insert(rows);
-      if (ingError) throw ingError;
+      if (ingError) {
+        this.lumberjack.logError('Failed to insert recipe ingredients', { error: ingError?.message || String(ingError), dishId: dishData.id }, 'SupabaseService');
+        throw ingError;
+      }
     }
   }
 
   public async deleteDish(dishId: string): Promise<void> {
     if (!this.client) throw new Error('Supabase client not active');
+    this.lumberjack.logInfo('Deleting dish from Supabase', { dishId }, 'SupabaseService');
     const { error } = await this.client.from('dishes').delete().eq('id', dishId);
-    if (error) throw error;
+    if (error) {
+      this.lumberjack.logError('Failed to delete dish', { error: error?.message || String(error), dishId }, 'SupabaseService');
+      throw error;
+    }
   }
 }

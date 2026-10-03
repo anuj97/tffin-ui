@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import { provideLumberjack } from '@ngworker/lumberjack';
 import { HouseholdService, DEFAULT_HOUSEHOLD } from './household.service';
 import { AuthService } from './auth.service';
 import { SupabaseService } from './supabase.service';
@@ -43,6 +44,7 @@ describe('HouseholdService (Membership & Role Architecture)', () => {
 
     TestBed.configureTestingModule({
       providers: [
+        provideLumberjack(),
         HouseholdService,
         NotificationService,
         { provide: AuthService, useValue: mockAuthService },

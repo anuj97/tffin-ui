@@ -3,6 +3,7 @@ import { SupabaseService } from './supabase.service';
 import { AuthService } from './auth.service';
 import { HouseholdService, DEFAULT_HOUSEHOLD } from './household.service';
 import { NotificationService } from './notification.service';
+import { LumberjackService } from '@ngworker/lumberjack';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
@@ -42,6 +43,7 @@ export interface DayMealSlot {
   providedIn: 'root'
 })
 export class MealStoreService {
+  private lumberjack = inject(LumberjackService);
   private supabase = inject(SupabaseService);
   private auth = inject(AuthService);
   public householdService = inject(HouseholdService);
@@ -78,7 +80,7 @@ export class MealStoreService {
       if (this.supabase.hasClient && user) {
         untracked(() => {
           this.loadFromSupabase().catch(err => {
-            console.warn('Failed to re-sync meal store for user:', err);
+            this.lumberjack.logWarning('Failed to re-sync meal store for user', { error: err?.message || String(err) }, 'MealStoreService');
           });
         });
       }
@@ -91,6 +93,7 @@ export class MealStoreService {
         const cur = this.schedules();
         const filtered = cur.filter(s => !s.household_id || activeIds.has(s.household_id));
         if (filtered.length !== cur.length) {
+          this.lumberjack.logInfo(`Pruned ${cur.length - filtered.length} schedules for inactive households`, undefined, 'MealStoreService');
           this.schedules.set(filtered);
         }
       });
@@ -109,7 +112,7 @@ export class MealStoreService {
       await this.loadFromSupabase();
       this.isDebugMode.set(false);
     } catch (err: any) {
-      console.warn('Failed to load from Supabase, activating local mock data:', err);
+      this.lumberjack.logWarning('Failed to load from Supabase, activating local mock data', { error: err?.message || String(err) }, 'MealStoreService');
       this.isDebugMode.set(true);
       this.loadMockData();
     } finally {
@@ -159,7 +162,14 @@ export class MealStoreService {
         end.toISOString().split('T')[0]
       );
       this.schedules.set(scheds);
+      this.lumberjack.logInfo('Meal store synchronized from Supabase', {
+        ingredientsCount: ings.length,
+        inventoryCount: invs.length,
+        dishesCount: dshs.length,
+        schedulesCount: scheds.length
+      }, 'MealStoreService');
     } catch (err: any) {
+      this.lumberjack.logError('Failed to load meal store from Supabase', { error: err?.message || String(err) }, 'MealStoreService');
       this.lastError.set(err.message || 'Failed to load meal store from Supabase');
       throw err;
     }
@@ -422,7 +432,9 @@ export class MealStoreService {
   ): Promise<void> {
     const effectiveHhId = householdId || this.effectiveHouseholdId() || this.authorizedHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
 
+    this.lumberjack.logInfo('Adjusting meal headcount', { scheduleDate, mealType, delta, householdId: effectiveHhId }, 'MealStoreService');
     if (!this.householdService.canPlanMeals(effectiveHhId)) {
+      this.lumberjack.logWarning('Unauthorized headcount adjustment attempt', { householdId: effectiveHhId }, 'MealStoreService');
       this.showNotification('You do not have permission to modify meals for this household.', 'error');
       return;
     }
@@ -443,7 +455,9 @@ export class MealStoreService {
       if (this.supabase.hasClient) {
         try {
           await this.supabase.updateHeadcountRPC(effectiveHhId, scheduleDate, mealType, delta);
+          this.lumberjack.logInfo('Headcount persisted in Supabase via RPC', { newCount }, 'MealStoreService');
         } catch (err: any) {
+          this.lumberjack.logError('Failed to persist headcount via RPC, rolling back optimistic state', { error: err?.message || String(err) }, 'MealStoreService');
           this.showNotification(`Error updating headcount: ${err.message}`, 'error');
           this.schedules.set(current);
         }
@@ -460,7 +474,9 @@ export class MealStoreService {
   ): Promise<void> {
     const targetHhId = household_id || this.effectiveHouseholdId() || this.authorizedHouseholds()[0]?.id || DEFAULT_HOUSEHOLD.id;
 
+    this.lumberjack.logInfo('Scheduling meal', { schedule_date, meal_type, dish_id, targetHhId, headcount }, 'MealStoreService');
     if (!this.householdService.canPlanMeals(targetHhId)) {
+      this.lumberjack.logWarning('Unauthorized meal planning attempt', { targetHhId }, 'MealStoreService');
       this.showNotification('You do not have permission to plan meals for this household.', 'error');
       return;
     }
@@ -490,6 +506,7 @@ export class MealStoreService {
         };
         this.schedules.set([...current, newSched]);
       }
+      this.lumberjack.logInfo('Meal schedule updated in local state', { schedule_date, meal_type }, 'MealStoreService');
       this.showNotification(`Meal scheduled for ${meal_type} (${targetHh?.name || 'Household'})`, 'success');
       return;
     }
@@ -503,13 +520,16 @@ export class MealStoreService {
       } else {
         this.schedules.set([...current, { ...saved, household: targetHh }]);
       }
+      this.lumberjack.logInfo('Meal schedule saved in Supabase', { id: saved.id, schedule_date, meal_type }, 'MealStoreService');
       this.showNotification(`Meal scheduled for ${meal_type} (${targetHh?.name || 'Household'}) on ${schedule_date}`, 'success');
     } catch (err: any) {
+      this.lumberjack.logError('Error saving meal schedule in Supabase', { error: err?.message || String(err) }, 'MealStoreService');
       this.showNotification(`Error saving schedule: ${err.message}`, 'error');
     }
   }
 
   public async updateInventoryQuantity(ingredientId: string, newQuantity: number, minThreshold?: number): Promise<void> {
+    this.lumberjack.logInfo('Updating inventory quantity', { ingredientId, newQuantity, minThreshold }, 'MealStoreService');
     const current = this.inventory();
     const idx = current.findIndex(i => i.ingredient_id === ingredientId);
 
@@ -529,6 +549,7 @@ export class MealStoreService {
         try {
           await this.supabase.updateInventory(ingredientId, item.quantity, item.min_threshold);
         } catch (err: any) {
+          this.lumberjack.logError('Error updating inventory in Supabase, rolling back optimistic update', { error: err?.message || String(err), ingredientId }, 'MealStoreService');
           this.showNotification(`Error updating inventory: ${err.message}`, 'error');
           this.inventory.set(current);
         }
@@ -537,6 +558,7 @@ export class MealStoreService {
   }
 
   public async adjustInventoryDelta(ingredientId: string, delta: number): Promise<void> {
+    this.lumberjack.logInfo('Adjusting inventory delta', { ingredientId, delta }, 'MealStoreService');
     const currentItem = this.inventory().find(i => i.ingredient_id === ingredientId);
     if (currentItem) {
       const newQty = Math.max(0, currentItem.quantity + delta);
@@ -551,6 +573,7 @@ export class MealStoreService {
     initialStock: number = 0,
     minThreshold: number = 0
   ): Promise<void> {
+    this.lumberjack.logInfo('Creating new ingredient', { name, category, unit, initialStock, minThreshold }, 'MealStoreService');
     const newId = 'ing-' + Date.now();
     const newIng: Ingredient = { id: newId, name, category, unit };
 
@@ -566,6 +589,7 @@ export class MealStoreService {
           updated_at: new Date().toISOString()
         }
       ]);
+      this.lumberjack.logInfo('Ingredient created in local state', { id: newId, name }, 'MealStoreService');
       this.showNotification(`Added ingredient: ${name}`, 'success');
       return;
     }
@@ -587,8 +611,10 @@ export class MealStoreService {
           updated_at: new Date().toISOString()
         }
       ]);
+      this.lumberjack.logInfo('Ingredient created in Supabase', { id: created.id, name: created.name }, 'MealStoreService');
       this.showNotification(`Added ingredient: ${name}`, 'success');
     } catch (err: any) {
+      this.lumberjack.logError('Failed to create ingredient in Supabase', { error: err?.message || String(err) }, 'MealStoreService');
       this.showNotification(`Failed to create ingredient: ${err.message}`, 'error');
     }
   }
@@ -598,6 +624,7 @@ export class MealStoreService {
     cookNotes: string,
     recipeIngredients: { ingredient_id: string; qty_per_person: number }[]
   ): Promise<void> {
+    this.lumberjack.logInfo('Creating new dish', { name, ingredientsCount: recipeIngredients.length }, 'MealStoreService');
     const dishId = 'dish-' + Date.now();
 
     if (!this.supabase.hasClient) {
@@ -613,6 +640,7 @@ export class MealStoreService {
         }))
       };
       this.dishes.set([...this.dishes(), newDish]);
+      this.lumberjack.logInfo('Dish created in local state', { dishId, name }, 'MealStoreService');
       this.showNotification(`Created dish: ${name}`, 'success');
       return;
     }
@@ -621,15 +649,19 @@ export class MealStoreService {
       await this.supabase.createDish({ name, cook_notes: cookNotes }, recipeIngredients);
       const dishes = await this.supabase.fetchDishes();
       this.dishes.set(dishes);
+      this.lumberjack.logInfo('Dish created in Supabase', { name }, 'MealStoreService');
       this.showNotification(`Created dish: ${name}`, 'success');
     } catch (err: any) {
+      this.lumberjack.logError('Failed to create dish in Supabase', { error: err?.message || String(err) }, 'MealStoreService');
       this.showNotification(`Failed to create dish: ${err.message}`, 'error');
     }
   }
 
   public async deleteDish(dishId: string): Promise<void> {
+    this.lumberjack.logInfo('Deleting dish', { dishId }, 'MealStoreService');
     if (!this.supabase.hasClient) {
       this.dishes.set(this.dishes().filter(d => d.id !== dishId));
+      this.lumberjack.logInfo('Dish deleted locally', { dishId }, 'MealStoreService');
       this.showNotification('Dish removed', 'info');
       return;
     }
@@ -637,13 +669,16 @@ export class MealStoreService {
     try {
       await this.supabase.deleteDish(dishId);
       this.dishes.set(this.dishes().filter(d => d.id !== dishId));
+      this.lumberjack.logInfo('Dish deleted in Supabase', { dishId }, 'MealStoreService');
       this.showNotification('Dish removed', 'info');
     } catch (err: any) {
+      this.lumberjack.logError('Failed to delete dish in Supabase', { error: err?.message || String(err), dishId }, 'MealStoreService');
       this.showNotification(`Failed to delete dish: ${err.message}`, 'error');
     }
   }
 
   public async quickRestockAll(shortages: ShortageReportItem[]): Promise<void> {
+    this.lumberjack.logInfo(`Quick restocking ${shortages.length} shortage items`, undefined, 'MealStoreService');
     for (const item of shortages) {
       const currentItem = this.inventory().find(i => i.ingredient_id === item.ingredientId);
       const currentQty = currentItem ? currentItem.quantity : 0;
