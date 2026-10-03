@@ -1,32 +1,11 @@
 -- ==============================================================================
--- TIFFIN SYSTEM: GOOGLE OAUTH & SUPABASE AUTH INTEGRATION MIGRATION
+-- TIFFIN SYSTEM: REMOVE DEFAULT HOUSEHOLD AUTO-ASSIGNMENT ON USER SIGNUP
 -- ==============================================================================
 -- Run this script in your Supabase Dashboard -> SQL Editor
+-- This updates handle_new_auth_user() so that new users start with NO household
+-- (household_id = NULL) and are prompted to create or join a household.
 -- ==============================================================================
 
--- 1. MODIFY APP_USERS FOR OAUTH COMPATIBILITY
--- Allow OAuth users who do not have a local password hash
-ALTER TABLE public.app_users ALTER COLUMN password_hash DROP NOT NULL;
-
--- Add optional email and avatar_url to app_users if not present
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_schema = 'public' AND table_name = 'app_users' AND column_name = 'email'
-    ) THEN
-        ALTER TABLE public.app_users ADD COLUMN email TEXT UNIQUE;
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_schema = 'public' AND table_name = 'app_users' AND column_name = 'avatar_url'
-    ) THEN
-        ALTER TABLE public.app_users ADD COLUMN avatar_url TEXT;
-    END IF;
-END $$;
-
--- 2. TRIGGER FUNCTION TO SYNC SUPABASE AUTH USERS (GOOGLE OAUTH) TO APP_USERS
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -68,7 +47,8 @@ BEGIN
         v_username := v_base_username || '_' || v_counter::text;
     END LOOP;
 
-    -- Upsert user record into app_users without default household
+    -- Upsert user record into app_users with household_id = NULL
+    -- New signups start unassigned and are directed to Create or Join a household
     INSERT INTO public.app_users (
         id,
         username,
@@ -98,22 +78,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 3. CREATE OR REPLACE THE TRIGGER ON auth.users
+-- Re-attach trigger on auth.users
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
-
--- Optional: Backfill any existing auth.users into app_users
-INSERT INTO public.app_users (id, username, email, password_hash, full_name, role, household_id)
-SELECT 
-    u.id,
-    lower(regexp_replace(COALESCE(u.raw_user_meta_data->>'user_name', split_part(u.email, '@', 1)), '[^a-zA-Z0-9_]', '', 'g')) || '_' || substr(u.id::text, 1, 4),
-    u.email,
-    'oauth_managed',
-    COALESCE(u.raw_user_meta_data->>'full_name', u.raw_user_meta_data->>'name', split_part(u.email, '@', 1)),
-    'household_member',
-    NULL
-FROM auth.users u
-ON CONFLICT (id) DO NOTHING;
-

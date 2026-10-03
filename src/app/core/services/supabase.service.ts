@@ -276,10 +276,6 @@ export class SupabaseService {
       .replace(/[^a-z0-9_]/g, '');
     const username = `${baseUsername || 'user'}_${authUser.id.slice(0, 4)}`;
 
-    // Try finding a default household
-    const households = await this.fetchHouseholds();
-    const defaultHhId = households.length > 0 ? households[0].id : null;
-
     try {
       const { data, error } = await this.client
         .from('app_users')
@@ -291,7 +287,7 @@ export class SupabaseService {
             password_hash: 'oauth_managed',
             full_name: fullName,
             role: 'household_member',
-            household_id: defaultHhId,
+            household_id: null,
             avatar_url: avatarUrl
           },
           { onConflict: 'id' }
@@ -303,19 +299,6 @@ export class SupabaseService {
         console.warn('Fallback app_users upsert warning:', error.message);
       }
 
-      if (defaultHhId) {
-        await this.client
-          .from('household_members')
-          .upsert(
-            {
-              household_id: defaultHhId,
-              user_id: authUser.id,
-              role_in_household: 'member'
-            },
-            { onConflict: 'household_id,user_id' }
-          );
-      }
-
       const refreshed = await this.fetchAppUserById(authUser.id);
       if (refreshed) return refreshed;
 
@@ -325,8 +308,8 @@ export class SupabaseService {
         email: authUser.email,
         fullName: fullName,
         role: 'household_member',
-        household_id: defaultHhId,
-        household_ids: defaultHhId ? [defaultHhId] : [],
+        household_id: null,
+        household_ids: [],
         avatar_url: avatarUrl || undefined
       };
     } catch (e) {
