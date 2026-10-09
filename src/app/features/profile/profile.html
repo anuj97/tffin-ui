@@ -93,10 +93,6 @@
                   Google Account
                 </span>
               }
-
-              @if (isLocalDebug()) {
-                <span class="badge badge-muted" title="Local Debug Session">⚡ Debug Mode</span>
-              }
             </div>
           </div>
 
@@ -594,7 +590,7 @@
           </div>
           <div class="session-item">
             <span class="session-lbl">Backend Engine:</span>
-            <span class="session-val">{{ isLocalDebug() ? 'Local Mock Storage' : 'Supabase Cloud Database' }}</span>
+            <span class="session-val">Supabase Cloud Database</span>
           </div>
         </div>
 
@@ -681,32 +677,6 @@
           }
         </div>
       }
-    </div>
-  }
-
-  <!-- Local Debug Quick Persona Switcher -->
-  @if (isLocalDebug()) {
-    <div class="card debug-persona-card">
-      <div class="debug-card-header">
-        <span class="debug-lightning">⚡</span>
-        <div>
-          <h4>Local Debug Sandbox: Test Persona Switcher</h4>
-          <p>Quickly preview and test different user profiles and roles in your local session:</p>
-        </div>
-      </div>
-
-      <div class="persona-pills-row">
-        @for (p of mockPersonas; track p.key) {
-          <button 
-            type="button" 
-            (click)="switchDebugPersona(p.key)" 
-            class="btn-persona-pill"
-            [class.active-persona]="currentUser()?.username === p.username">
-            <span class="pill-name">{{ p.name }}</span>
-            <span class="pill-role">({{ p.role }})</span>
-          </button>
-        }
-      </div>
     </div>
   }
 </div>

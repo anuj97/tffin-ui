@@ -80,17 +80,6 @@
           <span>Households</span>
         </a>
       }
-
-      <!-- Local Debug Indicator -->
-      @if (isLocalDebug()) {
-        <div class="local-debug-indicator" title="Running in Local Debug Mode without Supabase">
-          <span class="debug-dot">⚡</span>
-          <span>Debug Mode</span>
-          <button (click)="resetMockData()" class="btn-reset-mock" title="Reset all data to default mock state">
-            ↺ Reset
-          </button>
-        </div>
-      }
     </div>
 
     <!-- User Profile & Logout -->

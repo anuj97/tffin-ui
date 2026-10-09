@@ -7,6 +7,11 @@ import { SupabaseService } from './supabase.service';
 import { NotificationService } from './notification.service';
 import { AppUser } from '../models/user.model';
 import { Household, HouseholdMember, HouseholdInvitation } from '../models/household.model';
+import {
+  MOCK_HOUSEHOLDS,
+  MOCK_HOUSEHOLD_MEMBERS,
+  MOCK_INVITATIONS
+} from '../mock/mock-data';
 
 describe('HouseholdService (Membership & Role Architecture)', () => {
   let service: HouseholdService;
@@ -21,7 +26,6 @@ describe('HouseholdService (Membership & Role Architecture)', () => {
 
   const mockAuthService = {
     currentUser: currentUserSignal,
-    isLocalDebug: signal<boolean>(true),
     refreshCurrentUser: jasmine.createSpy('refreshCurrentUser').and.resolveTo(null)
   };
 
@@ -53,9 +57,12 @@ describe('HouseholdService (Membership & Role Architecture)', () => {
     });
 
     service = TestBed.inject(HouseholdService);
+    service.households.set([...MOCK_HOUSEHOLDS]);
+    service.householdMembers.set([...MOCK_HOUSEHOLD_MEMBERS]);
+    service.householdInvitations.set([...MOCK_INVITATIONS]);
   });
 
-  it('should initialize with mock data in debug/offline mode', () => {
+  it('should initialize and support test fixture population', () => {
     expect(service.households().length).toBeGreaterThan(0);
     expect(service.householdMembers().length).toBeGreaterThan(0);
     expect(service.householdInvitations().length).toBeGreaterThan(0);

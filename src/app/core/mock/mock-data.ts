@@ -1,3 +1,16 @@
+/**
+ * ==============================================================================
+ * TIFFIN KITCHEN: REFERENCE MOCK DATASET
+ * ==============================================================================
+ * NOTE: Local debug mode has been removed from application runtime workflows.
+ * 
+ * This file is retained as an authoritative reference dataset for:
+ * 1. Unit & integration test fixtures (e.g. household, meal-store specs)
+ * 2. Database seeding for staging/development (see sql/seed_mock_data.sql)
+ * 3. Schema reference for entities, relations, and sample multi-household setups
+ * ==============================================================================
+ */
+
 import { Household, HouseholdMember, HouseholdInvitation } from '../models/household.model';
 import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';

@@ -52,7 +52,6 @@ export class NavbarComponent {
   }
 
   public currentUser = this.auth.currentUser;
-  public isLocalDebug = this.auth.isLocalDebug;
   public households = this.householdService.households;
   public activeHouseholds = this.householdService.activeHouseholds;
   public authorizedHouseholds = this.householdService.authorizedHouseholds;
@@ -61,11 +60,6 @@ export class NavbarComponent {
   public isSingleHouseholdUser = this.householdService.isSingleHouseholdUser;
   public singleHousehold = this.householdService.singleHousehold;
   public canManageHouseholds = computed(() => this.householdService.canManageAnyHousehold());
-
-  public resetMockData(): void {
-    this.store.loadMockData();
-    this.store.showNotification('Mock data reset to initial state', 'info');
-  }
 
   // Household Manager Modal State
   public isManageModalOpen = signal<boolean>(false);

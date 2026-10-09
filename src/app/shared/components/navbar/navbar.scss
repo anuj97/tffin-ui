@@ -462,40 +462,6 @@
   }
 }
 
-.local-debug-indicator {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px dashed rgba(245, 158, 11, 0.45);
-  color: #fbbf24;
-  padding: 0.25rem 0.6rem;
-  border-radius: var(--radius-md);
-  font-size: 0.725rem;
-  font-weight: 700;
-
-  .debug-dot {
-    font-size: 0.8rem;
-  }
-
-  .btn-reset-mock {
-    background: rgba(245, 158, 11, 0.2);
-    border: 1px solid rgba(245, 158, 11, 0.4);
-    color: #fef3c7;
-    font-size: 0.65rem;
-    font-weight: 700;
-    padding: 0.1rem 0.35rem;
-    border-radius: 3px;
-    cursor: pointer;
-    transition: all 0.15s;
-
-    &:hover {
-      background: var(--primary);
-      color: #0b0f19;
-    }
-  }
-}
-
 .hh-dialog {
   max-width: 580px;
 }

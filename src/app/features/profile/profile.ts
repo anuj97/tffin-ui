@@ -5,7 +5,6 @@ import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { MealStoreService } from '../../core/services/meal-store.service';
 import { AppUser } from '../../core/models/user.model';
-import { MOCK_USERS } from '../../core/mock/mock-data';
 
 export interface AvatarPreset {
   id: string;
@@ -68,16 +67,9 @@ export class ProfileComponent implements OnInit {
   public copiedId = signal<boolean>(false);
 
   public avatarPresets = AVATAR_PRESETS;
-  public mockPersonas = Object.entries(MOCK_USERS).map(([key, u]) => ({
-    key,
-    name: u.fullName,
-    username: u.username,
-    role: u.role
-  }));
 
   // Computed Properties
   public currentUser = computed(() => this.auth.currentUser());
-  public isLocalDebug = computed(() => this.auth.isLocalDebug());
 
   public isGoogleUser = computed(() => {
     const u = this.currentUser();
@@ -278,13 +270,6 @@ export class ProfileComponent implements OnInit {
     this.store.setSelectedHousehold(hhId);
     const hh = this.store.householdsMap().get(hhId);
     this.store.showNotification(`Set ${hh?.name || 'household'} as your primary household`, 'success');
-  }
-
-  public switchDebugPersona(personaKey: string): void {
-    this.auth.loginLocalDebug(personaKey);
-    const updated = this.auth.currentUser();
-    this.populateForm(updated);
-    this.store.showNotification(`Switched to persona: ${updated?.fullName}`, 'info');
   }
 
   public onLogout(): void {

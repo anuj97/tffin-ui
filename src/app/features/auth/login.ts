@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { SupabaseService } from '../../core/services/supabase.service';
+
 @Component({
   selector: 'app-login',
   standalone: true,
@@ -63,12 +64,6 @@ export class LoginComponent {
       this.errorMessage.set(res.error);
       this.isGoogleLoading.set(false);
     }
-  }
-
-  public onSignInLocalDebug(role: string = 'admin'): void {
-    this.auth.loginLocalDebug(role);
-    const returnUrl = this.route.snapshot.queryParams['returnUrl'] || '/dashboard';
-    this.router.navigateByUrl(returnUrl);
   }
 
   public togglePasswordVisibility(): void {

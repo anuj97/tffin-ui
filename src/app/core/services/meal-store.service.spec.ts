@@ -9,6 +9,14 @@ import { Ingredient } from '../models/ingredient.model';
 import { InventoryItem } from '../models/inventory.model';
 import { MealSchedule } from '../models/meal-schedule.model';
 import { AppUser } from '../models/user.model';
+import {
+  MOCK_HOUSEHOLDS,
+  MOCK_HOUSEHOLD_MEMBERS,
+  MOCK_INGREDIENTS,
+  MOCK_INVENTORY,
+  MOCK_DISHES,
+  generateMockSchedules
+} from '../mock/mock-data';
 
 describe('MealStoreService (Multi-Household & Authorization)', () => {
   let service: MealStoreService;
@@ -22,7 +30,6 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
 
   const mockAuthService = {
     currentUser: currentUserSignal,
-    isLocalDebug: signal<boolean>(true),
     isAuthenticated: () => true
   };
 
@@ -54,9 +61,15 @@ describe('MealStoreService (Multi-Household & Authorization)', () => {
       ]
     });
     service = TestBed.inject(MealStoreService);
+    service.householdService.households.set([...MOCK_HOUSEHOLDS]);
+    service.householdService.householdMembers.set([...MOCK_HOUSEHOLD_MEMBERS]);
+    service.ingredients.set([...MOCK_INGREDIENTS]);
+    service.inventory.set([...MOCK_INVENTORY]);
+    service.dishes.set([...MOCK_DISHES]);
+    service.schedules.set(generateMockSchedules());
   });
 
-  it('should initialize with mock data when offline or in debug mode', () => {
+  it('should initialize and support test fixture population', () => {
     expect(service.households().length).toBeGreaterThan(0);
     expect(service.households()[0].name).toBe('Main Household');
     expect(service.selectedHouseholdId()).toBeNull(); // defaults to All Households

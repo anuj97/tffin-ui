@@ -5,11 +5,6 @@ import { NotificationService } from './notification.service';
 import { LumberjackService } from '@ngworker/lumberjack';
 import { Household, HouseholdMember, HouseholdInvitation, HouseholdMemberRole } from '../models/household.model';
 import { UserHouseholdMembership } from '../models/user.model';
-import {
-  MOCK_HOUSEHOLDS,
-  MOCK_HOUSEHOLD_MEMBERS,
-  MOCK_INVITATIONS
-} from '../mock/mock-data';
 
 export const DEFAULT_HOUSEHOLD: Household = {
   id: 'default-household-01',
@@ -38,7 +33,6 @@ export class HouseholdService {
   public selectedHouseholdId = signal<string | null>(null); // null = "All Households"
   public isLoading = signal<boolean>(false);
   public lastError = signal<string | null>(null);
-  public isDebugMode = signal<boolean>(!this.supabase.hasClient);
 
   constructor() {
     this.init();
@@ -58,29 +52,18 @@ export class HouseholdService {
 
   public async init(): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.isDebugMode.set(true);
-      this.loadMockData();
+      this.lumberjack.logInfo('Supabase client is not configured; running with default household', undefined, 'HouseholdService');
       return;
     }
 
     this.isLoading.set(true);
     try {
       await this.loadFromSupabase();
-      this.isDebugMode.set(false);
     } catch (err: any) {
-      this.lumberjack.logWarning('Failed to load households from Supabase, activating local mock data', { error: err?.message || String(err) }, 'HouseholdService');
-      this.isDebugMode.set(true);
-      this.loadMockData();
+      this.lumberjack.logWarning('Failed to load households from Supabase', { error: err?.message || String(err) }, 'HouseholdService');
     } finally {
       this.isLoading.set(false);
     }
-  }
-
-  public loadMockData(): void {
-    this.households.set([...MOCK_HOUSEHOLDS]);
-    this.householdMembers.set([...MOCK_HOUSEHOLD_MEMBERS]);
-    this.householdInvitations.set([...MOCK_INVITATIONS]);
-    this.selectedHouseholdId.set(null);
   }
 
   public clearState(): void {
@@ -521,13 +504,6 @@ export class HouseholdService {
   public async loadHouseholdMembers(householdId: string): Promise<void> {
     if (!householdId) return;
     if (!this.supabase.hasClient) {
-      const members = this.householdMembers().filter(m => m.household_id === householdId);
-      if (members.length === 0) {
-        const mockFiltered = MOCK_HOUSEHOLD_MEMBERS.filter(m => m.household_id === householdId);
-        if (mockFiltered.length > 0) {
-          this.householdMembers.update(curr => [...curr, ...mockFiltered]);
-        }
-      }
       return;
     }
 

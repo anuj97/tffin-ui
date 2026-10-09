@@ -9,12 +9,6 @@ import { InventoryItem } from '../models/inventory.model';
 import { Dish } from '../models/dish.model';
 import { Household, HouseholdMember, HouseholdInvitation, HouseholdMemberRole } from '../models/household.model';
 import { MealSchedule, MealStockStatus, MealType, ShortageReportItem } from '../models/meal-schedule.model';
-import {
-  MOCK_INGREDIENTS,
-  MOCK_INVENTORY,
-  MOCK_DISHES,
-  generateMockSchedules
-} from '../mock/mock-data';
 
 export { DEFAULT_HOUSEHOLD };
 
@@ -69,7 +63,6 @@ export class MealStoreService {
   public isLoading = signal<boolean>(false);
   public lastError = signal<string | null>(null);
   public notification = this.notifications.notification;
-  public isDebugMode = signal<boolean>(!this.supabase.hasClient);
 
   constructor() {
     this.init();
@@ -102,30 +95,18 @@ export class MealStoreService {
 
   public async init(): Promise<void> {
     if (!this.supabase.hasClient) {
-      this.isDebugMode.set(true);
-      this.loadMockData();
+      this.lumberjack.logInfo('Supabase client is not configured; running meal store in offline/local state', undefined, 'MealStoreService');
       return;
     }
 
     this.isLoading.set(true);
     try {
       await this.loadFromSupabase();
-      this.isDebugMode.set(false);
     } catch (err: any) {
-      this.lumberjack.logWarning('Failed to load from Supabase, activating local mock data', { error: err?.message || String(err) }, 'MealStoreService');
-      this.isDebugMode.set(true);
-      this.loadMockData();
+      this.lumberjack.logWarning('Failed to load meal store from Supabase', { error: err?.message || String(err) }, 'MealStoreService');
     } finally {
       this.isLoading.set(false);
     }
-  }
-
-  public loadMockData(): void {
-    this.householdService.loadMockData();
-    this.ingredients.set([...MOCK_INGREDIENTS]);
-    this.inventory.set([...MOCK_INVENTORY]);
-    this.dishes.set([...MOCK_DISHES]);
-    this.schedules.set(generateMockSchedules());
   }
 
   public clearState(): void {

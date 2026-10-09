@@ -25,7 +25,6 @@ describe('ProfileComponent', () => {
   };
 
   const currentUserSignal = signal<AppUser | null>(initialUser);
-  const isLocalDebugSignal = signal<boolean>(true);
 
   const mockHouseholds: Household[] = [
     {
@@ -60,11 +59,9 @@ describe('ProfileComponent', () => {
 
     const mockAuthService = {
       currentUser: currentUserSignal,
-      isLocalDebug: isLocalDebugSignal,
       updateCurrentUserProfile: updateProfileSpy,
       updatePassword: updatePasswordSpy,
       setPrimaryHousehold: setPrimaryHouseholdSpy,
-      loginLocalDebug: jasmine.createSpy('loginLocalDebug'),
       logout: jasmine.createSpy('logout')
     };
 

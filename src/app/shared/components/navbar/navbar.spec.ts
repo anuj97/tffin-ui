@@ -23,7 +23,6 @@ describe('NavbarComponent (Hamburger Menu)', () => {
 
   const mockAuthService = {
     currentUser: mockUserSignal,
-    isLocalDebug: signal<boolean>(false),
     logout: jasmine.createSpy('logout')
   };
 
@@ -62,7 +61,6 @@ describe('NavbarComponent (Hamburger Menu)', () => {
     lowStockCount: signal<number>(2),
     showNotification: jasmine.createSpy('showNotification'),
     setSelectedHousehold: jasmine.createSpy('setSelectedHousehold'),
-    loadMockData: jasmine.createSpy('loadMockData'),
     notification: signal(null)
   };
 

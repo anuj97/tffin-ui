@@ -3,18 +3,8 @@ import { Router } from '@angular/router';
 import { LumberjackService } from '@ngworker/lumberjack';
 import { SupabaseService } from './supabase.service';
 import { AppUser } from '../models/user.model';
-import { MOCK_USERS } from '../mock/mock-data';
 
 const STORAGE_KEY = 'tffin_auth_user';
-const DEBUG_FLAG_KEY = 'tffin_is_debug_mode';
-
-export const LOCAL_DEBUG_USER: AppUser = {
-  id: 'local-debug-admin-01',
-  username: 'debug_admin',
-  fullName: 'Local Debug Admin',
-  role: 'admin',
-  household_ids: [] // unrestricted
-};
 
 @Injectable({
   providedIn: 'root'
@@ -27,19 +17,9 @@ export class AuthService {
   public currentUser = signal<AppUser | null>(this.loadStoredUser());
   public isAuthenticated = computed(() => !!this.currentUser());
   public isAuthenticating = signal<boolean>(false);
-  public isLocalDebug = signal<boolean>(this.checkIfLocalDebug());
 
   constructor() {
     this.initSupabaseAuthListener();
-  }
-
-  private checkIfLocalDebug(): boolean {
-    if (typeof localStorage === 'undefined') return false;
-    return (
-      localStorage.getItem(DEBUG_FLAG_KEY) === 'true' ||
-      sessionStorage.getItem(DEBUG_FLAG_KEY) === 'true' ||
-      !this.supabase.hasClient
-    );
   }
 
   private loadStoredUser(): AppUser | null {
@@ -63,15 +43,6 @@ export class AuthService {
 
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
         if (session?.user) {
-          // If we are currently in local debug mode without OAuth redirect tokens, don't override
-          const hasOAuthTokens =
-            typeof window !== 'undefined' &&
-            (window.location.hash.includes('access_token') || window.location.search.includes('code='));
-
-          if (this.isLocalDebug() && !hasOAuthTokens) {
-            return;
-          }
-
           this.isAuthenticating.set(true);
           try {
             const userProfile = await this.supabase.ensureOAuthAppUser({
@@ -83,10 +54,7 @@ export class AuthService {
             if (userProfile) {
               this.lumberjack.logInfo('OAuth user profile synchronized successfully', { username: userProfile.username, id: userProfile.id }, 'AuthService');
               this.currentUser.set(userProfile);
-              this.isLocalDebug.set(false);
               localStorage.setItem(STORAGE_KEY, JSON.stringify(userProfile));
-              localStorage.removeItem(DEBUG_FLAG_KEY);
-              sessionStorage.removeItem(DEBUG_FLAG_KEY);
 
               // If currently on login page, redirect to dashboard
               if (this.router.url.includes('/login') || this.router.url === '/') {
@@ -100,10 +68,8 @@ export class AuthService {
           }
         }
       } else if (event === 'SIGNED_OUT') {
-        if (!this.isLocalDebug()) {
-          this.lumberjack.logInfo('User signed out via Supabase auth', undefined, 'AuthService');
-          this.clearLocalSession();
-        }
+        this.lumberjack.logInfo('User signed out via Supabase auth', undefined, 'AuthService');
+        this.clearLocalSession();
       }
     });
   }
@@ -133,27 +99,9 @@ export class AuthService {
       return { success: false, error: 'No user is currently signed in' };
     }
 
-    if (this.isLocalDebug() || !this.supabase.hasClient) {
-      const updated: AppUser = {
-        ...current,
-        ...updates
-      };
-      this.currentUser.set(updated);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      if (sessionStorage.getItem(STORAGE_KEY)) {
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      }
-
-      // Keep mock persona synchronized in debug mode
-      const personaKey = Object.keys(MOCK_USERS).find(
-        k => MOCK_USERS[k].id === current.id || MOCK_USERS[k].username === current.username
-      );
-      if (personaKey) {
-        MOCK_USERS[personaKey] = { ...MOCK_USERS[personaKey], ...updated };
-      }
-
-      this.lumberjack.logInfo('Updated profile in local debug mode', { username: updated.username }, 'AuthService');
-      return { success: true, user: updated };
+    if (!this.supabase.hasClient) {
+      this.lumberjack.logWarning('Cannot update profile: Supabase client is not configured', undefined, 'AuthService');
+      return { success: false, error: 'Database service is not configured' };
     }
 
     try {
@@ -189,9 +137,9 @@ export class AuthService {
       return { success: false, error: 'New password must be at least 6 characters long' };
     }
 
-    if (this.isLocalDebug() || !this.supabase.hasClient) {
-      this.lumberjack.logInfo('Password updated simulated in local debug mode', undefined, 'AuthService');
-      return { success: true };
+    if (!this.supabase.hasClient) {
+      this.lumberjack.logWarning('Cannot update password: Supabase client is not configured', undefined, 'AuthService');
+      return { success: false, error: 'Database service is not configured' };
     }
 
     return this.supabase.updateAppUserPassword(current.id, currentPassword, newPassword);
@@ -200,20 +148,6 @@ export class AuthService {
   public async setPrimaryHousehold(householdId: string | null): Promise<boolean> {
     const res = await this.updateCurrentUserProfile({ household_id: householdId });
     return res.success;
-  }
-
-  public loginLocalDebug(personaKey: string = 'admin'): { success: boolean } {
-    const matched = MOCK_USERS[personaKey] || MOCK_USERS['admin'];
-    const user: AppUser = {
-      ...matched
-    };
-
-    this.lumberjack.logInfo('Logging in with local debug persona', { personaKey, username: user.username, role: user.role }, 'AuthService');
-    this.currentUser.set(user);
-    this.isLocalDebug.set(true);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-    localStorage.setItem(DEBUG_FLAG_KEY, 'true');
-    return { success: true };
   }
 
   public async loginWithGoogle(): Promise<{ success: boolean; error?: string }> {
@@ -267,28 +201,12 @@ export class AuthService {
     this.lumberjack.logInfo('Authenticating user credentials', { username, rememberMe }, 'AuthService');
     this.isAuthenticating.set(true);
 
-    // If Supabase client is not configured, support local offline fallback
     if (!this.supabase.hasClient) {
       this.isAuthenticating.set(false);
-      const cleanUser = username.trim().toLowerCase();
-
-      if ((cleanUser === 'admin' && password === 'admin123') || cleanUser === 'debug') {
-        return this.loginLocalDebug('admin');
-      }
-      if (cleanUser === 'verma' || cleanUser === 'amit_verma') {
-        return this.loginLocalDebug('verma');
-      }
-      if (cleanUser === 'priya' || cleanUser === 'priya_patel') {
-        return this.loginLocalDebug('priya');
-      }
-      if (cleanUser === 'chef' || cleanUser === 'chef_rajesh') {
-        return this.loginLocalDebug('chef');
-      }
-
-      this.lumberjack.logWarning('Login rejected: Supabase not configured and invalid debug credentials', { username }, 'AuthService');
+      this.lumberjack.logWarning('Login rejected: Supabase credentials not configured in environment', { username }, 'AuthService');
       return {
         success: false,
-        error: 'Supabase credentials are not configured. Click one of the test persona buttons below or sign in with admin / admin123.'
+        error: 'Supabase authentication service is not configured. Please check your environment configuration.'
       };
     }
 
@@ -306,8 +224,6 @@ export class AuthService {
 
       this.lumberjack.logInfo('User successfully authenticated', { username: user.username, role: user.role, id: user.id }, 'AuthService');
       this.currentUser.set(user);
-      this.isLocalDebug.set(false);
-      localStorage.removeItem(DEBUG_FLAG_KEY);
 
       // Persist session
       const userJson = JSON.stringify(user);
@@ -344,9 +260,6 @@ export class AuthService {
   private clearLocalSession(): void {
     localStorage.removeItem(STORAGE_KEY);
     sessionStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(DEBUG_FLAG_KEY);
-    sessionStorage.removeItem(DEBUG_FLAG_KEY);
     this.currentUser.set(null);
-    this.isLocalDebug.set(false);
   }
 }
