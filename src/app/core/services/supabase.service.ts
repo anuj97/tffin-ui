@@ -558,49 +558,77 @@ export class SupabaseService {
           id: row.id,
           household_id: row.household_id,
           user_id: row.user_id,
-          role_in_household: row.role_in_household || 'member',
+          role_in_household: row.role_in_household || 'owner',
           created_at: row.created_at,
           username: row.username || 'member',
           fullName: row.full_name || row.username || 'Member',
           email: row.email
         }));
       }
+      if (rpcError) {
+        this.lumberjack.logWarning(`get_household_members RPC error, falling back: ${rpcError.message}`, undefined, 'SupabaseService');
+      }
+    } catch (e: any) {
+      this.lumberjack.logWarning('get_household_members RPC exception, falling back', { error: e?.message || String(e) }, 'SupabaseService');
+    }
+
+    // 2. Direct joined table query fallback
+    try {
+      const { data, error } = await this.client
+        .from('household_members')
+        .select(`
+          id,
+          household_id,
+          user_id,
+          role_in_household,
+          created_at,
+          app_users (
+            username,
+            full_name,
+            email
+          )
+        `)
+        .eq('household_id', householdId);
+
+      if (!error && data && Array.isArray(data)) {
+        return data.map((row: any) => ({
+          id: row.id,
+          household_id: row.household_id,
+          user_id: row.user_id,
+          role_in_household: row.role_in_household || 'owner',
+          created_at: row.created_at,
+          username: row.app_users?.username || 'member',
+          fullName: row.app_users?.full_name || row.app_users?.username || 'Member',
+          email: row.app_users?.email
+        }));
+      }
     } catch (e) {
-      // Fallback to direct table query
+      // Fallback to simple table query
     }
 
-    // 2. Direct table query fallback
-    const { data, error } = await this.client
-      .from('household_members')
-      .select(`
-        id,
-        household_id,
-        user_id,
-        role_in_household,
-        created_at,
-        app_users (
-          username,
-          full_name,
-          email
-        )
-      `)
-      .eq('household_id', householdId);
+    // 3. Direct simple table query fallback without foreign table join
+    try {
+      const { data: simpleData, error: simpleError } = await this.client
+        .from('household_members')
+        .select('*')
+        .eq('household_id', householdId);
 
-    if (error) {
-      this.lumberjack.logWarning(`Could not fetch household members: ${error.message}`, undefined, 'SupabaseService');
-      return [];
+      if (!simpleError && simpleData && Array.isArray(simpleData)) {
+        return simpleData.map((row: any) => ({
+          id: row.id,
+          household_id: row.household_id,
+          user_id: row.user_id,
+          role_in_household: row.role_in_household || 'owner',
+          created_at: row.created_at,
+          username: 'member',
+          fullName: 'Household Member'
+        }));
+      }
+    } catch (e) {
+      this.lumberjack.logWarning('Direct household_members simple query failed', undefined, 'SupabaseService');
     }
 
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      household_id: row.household_id,
-      user_id: row.user_id,
-      role_in_household: row.role_in_household || 'member',
-      created_at: row.created_at,
-      username: row.app_users?.username || 'member',
-      fullName: row.app_users?.full_name || row.app_users?.username || 'Member',
-      email: row.app_users?.email
-    }));
+    return [];
   }
 
   public async fetchHouseholdInvitations(householdId: string): Promise<HouseholdInvitation[]> {

@@ -7,10 +7,28 @@
 -- 2. Solves infinite RLS recursion on `household_members` and `households`.
 -- 3. Adds SECURITY DEFINER RPCs `get_user_memberships` and `get_household_members`.
 -- 4. Ensures `get_authorized_households` handles NULL is_active and client-passed user_id.
--- 5. Prevents stale `app_users.household_id` from resurrecting access to removed households.
+-- 5. Ensures every household has at least one 'owner' in household_members.
 -- 6. Ensures `accept_household_invitation` initializes primary household if NULL.
 -- 7. Grants EXECUTE permissions to authenticated and anon roles.
 -- ==============================================================================
+
+-- 0. SCHEMA SAFETY: Ensure email and avatar_url exist on app_users
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'app_users' AND column_name = 'email'
+    ) THEN
+        ALTER TABLE public.app_users ADD COLUMN email TEXT;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'app_users' AND column_name = 'avatar_url'
+    ) THEN
+        ALTER TABLE public.app_users ADD COLUMN avatar_url TEXT;
+    END IF;
+END $$;
 
 -- 1. HELPER FUNCTION TO GET AUTHORIZED HOUSEHOLD IDS (AUTHORITATIVE & NON-RECURSIVE)
 -- Defined as SECURITY DEFINER so PostgreSQL will not trigger recursive RLS policies.
@@ -85,14 +103,14 @@ BEGIN
 
     -- 1. Authoritative rows from household_members
     RETURN QUERY
-    SELECT hm.household_id, COALESCE(hm.role_in_household, 'member')::TEXT
+    SELECT hm.household_id, COALESCE(hm.role_in_household, 'owner')::TEXT
     FROM public.household_members hm
     WHERE hm.user_id = v_user_id;
 
     -- 2. Fallback to app_users.household_id ONLY if no records exist in household_members
     IF NOT FOUND THEN
         RETURN QUERY
-        SELECT u.household_id, 'member'::TEXT
+        SELECT u.household_id, 'owner'::TEXT
         FROM public.app_users u
         WHERE u.id = v_user_id AND u.household_id IS NOT NULL;
     END IF;
@@ -117,11 +135,11 @@ BEGIN
         hm.id,
         hm.household_id,
         hm.user_id,
-        hm.role_in_household,
+        COALESCE(hm.role_in_household, 'owner')::TEXT AS role_in_household,
         hm.created_at,
-        COALESCE(u.username, 'member') AS username,
-        COALESCE(u.full_name, u.username, 'Member') AS full_name,
-        u.email
+        COALESCE(u.username, 'member')::TEXT AS username,
+        COALESCE(u.full_name, u.username, 'Member')::TEXT AS full_name,
+        u.email::TEXT AS email
     FROM public.household_members hm
     LEFT JOIN public.app_users u ON u.id = hm.user_id
     WHERE hm.household_id = p_household_id
@@ -239,7 +257,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 9. RECONCILIATION: CLEAN UP ORPHANED PRIMARY HOUSEHOLD REFERENCES
+-- 9. RECONCILIATION: CLEAN UP ROLES & ORPHANED PRIMARY REFERENCES
+-- Ensure every household has at least one 'owner' in household_members:
+-- If a household has members but no member marked as 'owner', promote the earliest member to 'owner'
+UPDATE public.household_members hm
+SET role_in_household = 'owner'
+WHERE hm.id IN (
+    SELECT DISTINCT ON (household_id) id
+    FROM public.household_members
+    WHERE household_id NOT IN (
+        SELECT DISTINCT household_id FROM public.household_members WHERE role_in_household = 'owner'
+    )
+    ORDER BY household_id, created_at ASC
+);
+
+-- Default any NULL role_in_household to 'owner'
+UPDATE public.household_members
+SET role_in_household = 'owner'
+WHERE role_in_household IS NULL;
+
 -- If a user has memberships in household_members, but their app_users.household_id points
 -- to a household they are NO LONGER a member of, update it to their first active membership.
 UPDATE public.app_users u

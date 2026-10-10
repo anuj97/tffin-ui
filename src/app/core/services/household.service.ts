@@ -48,6 +48,17 @@ export class HouseholdService {
         });
       }
     });
+
+    // Automatically synchronize members and invitations whenever effectiveHouseholdId resolves or changes
+    effect(() => {
+      const hhId = this.effectiveHouseholdId();
+      if (this.supabase.hasClient && hhId) {
+        untracked(() => {
+          this.loadHouseholdMembers(hhId).catch(() => {});
+          this.loadHouseholdInvitations(hhId).catch(() => {});
+        });
+      }
+    });
   }
 
   public async init(): Promise<void> {
@@ -83,23 +94,26 @@ export class HouseholdService {
         this.households.set(hhs);
         this.lumberjack.logInfo(`Loaded ${hhs.length} households from Supabase`, undefined, 'HouseholdService');
 
-        // Reconcile current user's memberships/household_ids if not yet populated
-        const currentUser = this.auth.currentUser();
-        if (currentUser && (!currentUser.household_ids || currentUser.household_ids.length === 0 || !currentUser.memberships || currentUser.memberships.length === 0)) {
-          const hhIds = hhs.map(h => h.id);
-          const reconciledUser: AppUser = {
-            ...currentUser,
-            household_id: currentUser.household_id || hhIds[0],
-            household_ids: hhIds,
-            memberships: hhIds.map(hid => ({
-              household_id: hid,
-              role: (currentUser.role === 'owner' ? 'owner' : 'member')
-            }))
-          };
-          this.auth.currentUser.set(reconciledUser);
+        // Fetch authoritative profile with true memberships from Supabase (never fabricate roles)
+        if (userId) {
           try {
-            localStorage.setItem('tffin_user_session', JSON.stringify(reconciledUser));
-          } catch {}
+            const freshProfile = await this.supabase.fetchAppUserById(userId);
+            if (freshProfile) {
+              this.auth.currentUser.set(freshProfile);
+              try {
+                localStorage.setItem('tffin_auth_user', JSON.stringify(freshProfile));
+              } catch {}
+            }
+          } catch (e) {
+            this.lumberjack.logWarning('Could not refresh user profile in loadFromSupabase', { error: String(e) }, 'HouseholdService');
+          }
+        }
+
+        // Auto-load members and invitations for the effective household
+        const targetId = this.effectiveHouseholdId() || hhs[0].id;
+        if (targetId) {
+          this.loadHouseholdMembers(targetId).catch(() => {});
+          this.loadHouseholdInvitations(targetId).catch(() => {});
         }
       } else {
         const user = this.auth.currentUser();
@@ -235,20 +249,20 @@ export class HouseholdService {
     // Chef can plan meals for any household
     if (user.role === 'chef') return 'member';
 
-    // 1. Check user memberships loaded on AppUser (strictly authoritative if present)
-    const userMem = user.memberships?.find(m => m.household_id === householdId);
-    if (userMem) return userMem.role;
-
-    // If memberships array is populated, it is strictly authoritative
-    if (user.memberships && user.memberships.length > 0) {
-      return null;
-    }
-
-    // 2. Check loaded householdMembers roster
+    // 1. Check loaded householdMembers roster (direct database rows for this household)
     const rosterMem = this.householdMembers().find(
       m => m.household_id === householdId && m.user_id === user.id
     );
     if (rosterMem) return rosterMem.role_in_household;
+
+    // 2. Check user memberships loaded on AppUser
+    const userMem = user.memberships?.find(m => m.household_id === householdId);
+    if (userMem) return userMem.role;
+
+    // If memberships array is populated and didn't match household, user is not a member
+    if (user.memberships && user.memberships.length > 0) {
+      return null;
+    }
 
     // 3. Fallback only for legacy users without memberships array
     if (user.role === 'owner' && (user.household_id === householdId || user.household_ids?.includes(householdId))) {

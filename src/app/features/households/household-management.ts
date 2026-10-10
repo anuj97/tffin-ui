@@ -1,4 +1,4 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, effect, inject, OnInit, signal, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -36,7 +36,26 @@ export class HouseholdManagementComponent implements OnInit {
   public currentMembers = computed<HouseholdMember[]>(() => {
     const hhId = this.currentHousehold()?.id;
     if (!hhId) return [];
-    return this.householdService.householdMembers().filter(m => m.household_id === hhId);
+    const roster = this.householdService.householdMembers().filter(m => m.household_id === hhId);
+    if (roster.length > 0) return roster;
+
+    // Fallback while roster is pending initial hydration: list current user so they are never missing
+    const u = this.currentUser();
+    if (u && (u.household_id === hhId || u.household_ids?.includes(hhId) || this.householdService.authorizedHouseholdIds().has(hhId))) {
+      const role = this.householdService.getRoleInHousehold(hhId) || 'owner';
+      return [{
+        id: `current-${u.id}`,
+        household_id: hhId,
+        user_id: u.id,
+        role_in_household: role,
+        created_at: u.created_at || new Date().toISOString(),
+        username: u.username,
+        fullName: u.fullName || u.username,
+        email: u.email
+      }];
+    }
+
+    return [];
   });
 
   // Current Household Invitations
@@ -102,6 +121,30 @@ export class HouseholdManagementComponent implements OnInit {
   // Delete Household Modal State
   public isDeleteModalOpen = signal<boolean>(false);
   public isDeleting = signal<boolean>(false);
+
+  constructor() {
+    // Reactively ensure selectedHouseholdId tracks effectiveHouseholdId
+    effect(() => {
+      const effId = this.householdService.effectiveHouseholdId();
+      const currentSelected = this.selectedHouseholdId();
+      if (effId && !currentSelected) {
+        untracked(() => {
+          this.selectedHouseholdId.set(effId);
+        });
+      }
+    });
+
+    // Reactively ensure members and invitations are loaded for currentHousehold
+    effect(() => {
+      const hh = this.currentHousehold();
+      if (hh?.id) {
+        untracked(() => {
+          this.householdService.loadHouseholdMembers(hh.id);
+          this.householdService.loadHouseholdInvitations(hh.id);
+        });
+      }
+    });
+  }
 
   public ngOnInit(): void {
     // Initial household selection
