@@ -57,6 +57,7 @@ describe('HouseholdManagementComponent', () => {
   const mockHouseholdService = {
     activeHouseholds: signal(mockHouseholds),
     authorizedHouseholds: signal(mockHouseholds),
+    authorizedHouseholdIds: signal(new Set(['mock-hh-02'])),
     effectiveHouseholdId: signal('mock-hh-02'),
     householdsMap: signal(new Map([['mock-hh-02', mockHouseholds[0]]])),
     householdMembers: mockMembersSignal,
@@ -64,6 +65,7 @@ describe('HouseholdManagementComponent', () => {
     canManage: jasmine.createSpy('canManage').and.returnValue(true),
     isOwner: jasmine.createSpy('isOwner').and.returnValue(true),
     canPlanMeals: jasmine.createSpy('canPlanMeals').and.returnValue(true),
+    getRoleInHousehold: jasmine.createSpy('getRoleInHousehold').and.returnValue('owner'),
     loadHouseholdMembers: jasmine.createSpy('loadHouseholdMembers'),
     loadHouseholdInvitations: jasmine.createSpy('loadHouseholdInvitations'),
     createInviteLink: jasmine.createSpy('createInviteLink').and.resolveTo({
@@ -102,6 +104,17 @@ describe('HouseholdManagementComponent', () => {
   };
 
   beforeEach(async () => {
+    mockMembersSignal.set([
+      {
+        id: 'hm-1',
+        household_id: 'mock-hh-02',
+        user_id: 'user-verma',
+        role_in_household: 'owner',
+        username: 'amit_verma',
+        fullName: 'Amit Verma'
+      }
+    ]);
+
     await TestBed.configureTestingModule({
       imports: [HouseholdManagementComponent],
       providers: [

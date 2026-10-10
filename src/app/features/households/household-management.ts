@@ -41,9 +41,14 @@ export class HouseholdManagementComponent implements OnInit {
 
     // Ensure the current user is included alongside other members if they are part of this household
     const u = this.currentUser();
-    if (u && (u.household_id === hhId || u.household_ids?.includes(hhId) || this.householdService.authorizedHouseholdIds().has(hhId))) {
+    const isAuthed = typeof this.householdService.authorizedHouseholdIds === 'function'
+      ? this.householdService.authorizedHouseholdIds().has(hhId)
+      : this.activeHouseholds().some(h => h.id === hhId);
+    if (u && (u.household_id === hhId || u.household_ids?.includes(hhId) || isAuthed)) {
       if (!result.some(m => m.user_id === u.id)) {
-        const role = this.householdService.getRoleInHousehold(hhId) || 'owner';
+        const role = (typeof this.householdService.getRoleInHousehold === 'function'
+          ? this.householdService.getRoleInHousehold(hhId)
+          : null) || 'owner';
         result.unshift({
           id: `current-${u.id}`,
           household_id: hhId,
@@ -129,7 +134,9 @@ export class HouseholdManagementComponent implements OnInit {
     effect(() => {
       const effId = this.householdService.effectiveHouseholdId();
       const currentSelected = this.selectedHouseholdId();
-      const authed = this.householdService.authorizedHouseholdIds();
+      const authed = typeof this.householdService.authorizedHouseholdIds === 'function'
+        ? this.householdService.authorizedHouseholdIds()
+        : new Set(this.activeHouseholds().map(h => h.id));
       if (effId && (!currentSelected || !authed.has(currentSelected))) {
         untracked(() => {
           this.selectedHouseholdId.set(effId);

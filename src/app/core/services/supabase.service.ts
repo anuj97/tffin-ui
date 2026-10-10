@@ -595,16 +595,17 @@ export class SupabaseService {
           .eq('household_id', householdId);
 
         if (!error && data && Array.isArray(data)) {
-          for (const row of data) {
+          for (const row of data as any[]) {
+            const userObj = Array.isArray(row.app_users) ? row.app_users[0] : row.app_users;
             memberMap.set(row.user_id || row.id, {
               id: row.id,
               household_id: row.household_id,
               user_id: row.user_id,
               role_in_household: row.role_in_household || 'owner',
               created_at: row.created_at,
-              username: row.app_users?.username || 'member',
-              fullName: row.app_users?.full_name || row.app_users?.username || 'Member',
-              email: row.app_users?.email
+              username: userObj?.username || 'member',
+              fullName: userObj?.full_name || userObj?.username || 'Member',
+              email: userObj?.email
             });
           }
         }

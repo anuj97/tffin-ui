@@ -37,6 +37,7 @@ describe('HouseholdService (Membership & Role Architecture)', () => {
   };
 
   beforeEach(() => {
+    mockSupabaseService.hasClient = false;
     currentUserSignal.set({
       id: 'user-admin',
       username: 'admin',
