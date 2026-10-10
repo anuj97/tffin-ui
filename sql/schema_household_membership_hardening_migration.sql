@@ -131,19 +131,40 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
-        hm.id,
-        hm.household_id,
-        hm.user_id,
-        COALESCE(hm.role_in_household, 'owner')::TEXT AS role_in_household,
-        hm.created_at,
-        COALESCE(u.username, 'member')::TEXT AS username,
-        COALESCE(u.full_name, u.username, 'Member')::TEXT AS full_name,
-        u.email::TEXT AS email
-    FROM public.household_members hm
-    LEFT JOIN public.app_users u ON u.id = hm.user_id
-    WHERE hm.household_id = p_household_id
-    ORDER BY hm.created_at ASC;
+    WITH all_members AS (
+        SELECT 
+            hm.id,
+            hm.household_id,
+            hm.user_id,
+            COALESCE(hm.role_in_household, 'owner')::TEXT AS role_in_household,
+            hm.created_at,
+            COALESCE(u.username, 'member')::TEXT AS username,
+            COALESCE(u.full_name, u.username, 'Member')::TEXT AS full_name,
+            u.email::TEXT AS email
+        FROM public.household_members hm
+        LEFT JOIN public.app_users u ON u.id = hm.user_id
+        WHERE hm.household_id = p_household_id
+
+        UNION ALL
+
+        SELECT 
+            gen_random_uuid() AS id,
+            u.household_id,
+            u.id AS user_id,
+            CASE WHEN u.role = 'owner' THEN 'owner' ELSE 'member' END AS role_in_household,
+            COALESCE(u.created_at, now()) AS created_at,
+            COALESCE(u.username, 'member')::TEXT AS username,
+            COALESCE(u.full_name, u.username, 'Member')::TEXT AS full_name,
+            u.email::TEXT AS email
+        FROM public.app_users u
+        WHERE u.household_id = p_household_id
+          AND NOT EXISTS (
+              SELECT 1 FROM public.household_members hm 
+              WHERE hm.household_id = p_household_id AND hm.user_id = u.id
+          )
+    )
+    SELECT * FROM all_members
+    ORDER BY created_at ASC;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

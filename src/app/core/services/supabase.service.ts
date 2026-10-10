@@ -547,6 +547,8 @@ export class SupabaseService {
   public async fetchHouseholdMembers(householdId: string): Promise<HouseholdMember[]> {
     if (!this.client) return [];
 
+    const memberMap = new Map<string, HouseholdMember>();
+
     // 1. Try get_household_members RPC first (SECURITY DEFINER)
     try {
       const { data: rpcData, error: rpcError } = await this.client.rpc('get_household_members', {
@@ -554,81 +556,117 @@ export class SupabaseService {
       });
 
       if (!rpcError && rpcData && Array.isArray(rpcData)) {
-        return rpcData.map((row: any) => ({
-          id: row.id,
-          household_id: row.household_id,
-          user_id: row.user_id,
-          role_in_household: row.role_in_household || 'owner',
-          created_at: row.created_at,
-          username: row.username || 'member',
-          fullName: row.full_name || row.username || 'Member',
-          email: row.email
-        }));
-      }
-      if (rpcError) {
+        for (const row of rpcData) {
+          memberMap.set(row.user_id || row.id, {
+            id: row.id,
+            household_id: row.household_id,
+            user_id: row.user_id,
+            role_in_household: row.role_in_household || 'owner',
+            created_at: row.created_at,
+            username: row.username || 'member',
+            fullName: row.full_name || row.username || 'Member',
+            email: row.email
+          });
+        }
+      } else if (rpcError) {
         this.lumberjack.logWarning(`get_household_members RPC error, falling back: ${rpcError.message}`, undefined, 'SupabaseService');
       }
     } catch (e: any) {
       this.lumberjack.logWarning('get_household_members RPC exception, falling back', { error: e?.message || String(e) }, 'SupabaseService');
     }
 
-    // 2. Direct joined table query fallback
-    try {
-      const { data, error } = await this.client
-        .from('household_members')
-        .select(`
-          id,
-          household_id,
-          user_id,
-          role_in_household,
-          created_at,
-          app_users (
-            username,
-            full_name,
-            email
-          )
-        `)
-        .eq('household_id', householdId);
+    // 2. Direct joined table query fallback (from household_members)
+    if (memberMap.size === 0) {
+      try {
+        const { data, error } = await this.client
+          .from('household_members')
+          .select(`
+            id,
+            household_id,
+            user_id,
+            role_in_household,
+            created_at,
+            app_users (
+              username,
+              full_name,
+              email
+            )
+          `)
+          .eq('household_id', householdId);
 
-      if (!error && data && Array.isArray(data)) {
-        return data.map((row: any) => ({
-          id: row.id,
-          household_id: row.household_id,
-          user_id: row.user_id,
-          role_in_household: row.role_in_household || 'owner',
-          created_at: row.created_at,
-          username: row.app_users?.username || 'member',
-          fullName: row.app_users?.full_name || row.app_users?.username || 'Member',
-          email: row.app_users?.email
-        }));
+        if (!error && data && Array.isArray(data)) {
+          for (const row of data) {
+            memberMap.set(row.user_id || row.id, {
+              id: row.id,
+              household_id: row.household_id,
+              user_id: row.user_id,
+              role_in_household: row.role_in_household || 'owner',
+              created_at: row.created_at,
+              username: row.app_users?.username || 'member',
+              fullName: row.app_users?.full_name || row.app_users?.username || 'Member',
+              email: row.app_users?.email
+            });
+          }
+        }
+      } catch (e) {
+        // Fallback to simple table query
       }
-    } catch (e) {
-      // Fallback to simple table query
     }
 
     // 3. Direct simple table query fallback without foreign table join
-    try {
-      const { data: simpleData, error: simpleError } = await this.client
-        .from('household_members')
-        .select('*')
-        .eq('household_id', householdId);
+    if (memberMap.size === 0) {
+      try {
+        const { data: simpleData, error: simpleError } = await this.client
+          .from('household_members')
+          .select('*')
+          .eq('household_id', householdId);
 
-      if (!simpleError && simpleData && Array.isArray(simpleData)) {
-        return simpleData.map((row: any) => ({
-          id: row.id,
-          household_id: row.household_id,
-          user_id: row.user_id,
-          role_in_household: row.role_in_household || 'owner',
-          created_at: row.created_at,
-          username: 'member',
-          fullName: 'Household Member'
-        }));
+        if (!simpleError && simpleData && Array.isArray(simpleData)) {
+          for (const row of simpleData) {
+            memberMap.set(row.user_id || row.id, {
+              id: row.id,
+              household_id: row.household_id,
+              user_id: row.user_id,
+              role_in_household: row.role_in_household || 'owner',
+              created_at: row.created_at,
+              username: 'member',
+              fullName: 'Household Member'
+            });
+          }
+        }
+      } catch (e) {
+        this.lumberjack.logWarning('Direct household_members simple query failed', undefined, 'SupabaseService');
       }
-    } catch (e) {
-      this.lumberjack.logWarning('Direct household_members simple query failed', undefined, 'SupabaseService');
     }
 
-    return [];
+    // 4. Also include any users linked via app_users.household_id (legacy or primary household assignment)
+    try {
+      const { data: appUsersData, error: appUsersErr } = await this.client
+        .from('app_users')
+        .select('id, username, full_name, email, role, created_at')
+        .eq('household_id', householdId);
+
+      if (!appUsersErr && appUsersData && Array.isArray(appUsersData)) {
+        for (const u of appUsersData) {
+          if (!memberMap.has(u.id)) {
+            memberMap.set(u.id, {
+              id: `app-user-${u.id}`,
+              household_id: householdId,
+              user_id: u.id,
+              role_in_household: (u.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole,
+              created_at: u.created_at || new Date().toISOString(),
+              username: u.username || 'member',
+              fullName: u.full_name || u.username || 'Member',
+              email: u.email
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // Non-fatal
+    }
+
+    return Array.from(memberMap.values());
   }
 
   public async fetchHouseholdInvitations(householdId: string): Promise<HouseholdInvitation[]> {

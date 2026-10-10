@@ -37,25 +37,27 @@ export class HouseholdManagementComponent implements OnInit {
     const hhId = this.currentHousehold()?.id;
     if (!hhId) return [];
     const roster = this.householdService.householdMembers().filter(m => m.household_id === hhId);
-    if (roster.length > 0) return roster;
+    const result = [...roster];
 
-    // Fallback while roster is pending initial hydration: list current user so they are never missing
+    // Ensure the current user is included alongside other members if they are part of this household
     const u = this.currentUser();
     if (u && (u.household_id === hhId || u.household_ids?.includes(hhId) || this.householdService.authorizedHouseholdIds().has(hhId))) {
-      const role = this.householdService.getRoleInHousehold(hhId) || 'owner';
-      return [{
-        id: `current-${u.id}`,
-        household_id: hhId,
-        user_id: u.id,
-        role_in_household: role,
-        created_at: u.created_at || new Date().toISOString(),
-        username: u.username,
-        fullName: u.fullName || u.username,
-        email: u.email
-      }];
+      if (!result.some(m => m.user_id === u.id)) {
+        const role = this.householdService.getRoleInHousehold(hhId) || 'owner';
+        result.unshift({
+          id: `current-${u.id}`,
+          household_id: hhId,
+          user_id: u.id,
+          role_in_household: role,
+          created_at: u.created_at || new Date().toISOString(),
+          username: u.username,
+          fullName: u.fullName || u.username,
+          email: u.email
+        });
+      }
     }
 
-    return [];
+    return result;
   });
 
   // Current Household Invitations
@@ -123,13 +125,18 @@ export class HouseholdManagementComponent implements OnInit {
   public isDeleting = signal<boolean>(false);
 
   constructor() {
-    // Reactively ensure selectedHouseholdId tracks effectiveHouseholdId
+    // Reactively ensure selectedHouseholdId tracks effectiveHouseholdId or first active household
     effect(() => {
       const effId = this.householdService.effectiveHouseholdId();
       const currentSelected = this.selectedHouseholdId();
-      if (effId && !currentSelected) {
+      const authed = this.householdService.authorizedHouseholdIds();
+      if (effId && (!currentSelected || !authed.has(currentSelected))) {
         untracked(() => {
           this.selectedHouseholdId.set(effId);
+        });
+      } else if (!currentSelected && this.activeHouseholds().length > 0) {
+        untracked(() => {
+          this.selectedHouseholdId.set(this.activeHouseholds()[0].id);
         });
       }
     });

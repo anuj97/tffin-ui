@@ -49,13 +49,15 @@ export class HouseholdService {
       }
     });
 
-    // Automatically synchronize members and invitations whenever effectiveHouseholdId resolves or changes
+    // Automatically synchronize members and invitations whenever authorized households change
     effect(() => {
-      const hhId = this.effectiveHouseholdId();
-      if (this.supabase.hasClient && hhId) {
+      const hhs = this.authorizedHouseholds();
+      if (this.supabase.hasClient && hhs.length > 0) {
         untracked(() => {
-          this.loadHouseholdMembers(hhId).catch(() => {});
-          this.loadHouseholdInvitations(hhId).catch(() => {});
+          for (const hh of hhs) {
+            this.loadHouseholdMembers(hh.id).catch(() => {});
+            this.loadHouseholdInvitations(hh.id).catch(() => {});
+          }
         });
       }
     });
@@ -109,11 +111,10 @@ export class HouseholdService {
           }
         }
 
-        // Auto-load members and invitations for the effective household
-        const targetId = this.effectiveHouseholdId() || hhs[0].id;
-        if (targetId) {
-          this.loadHouseholdMembers(targetId).catch(() => {});
-          this.loadHouseholdInvitations(targetId).catch(() => {});
+        // Auto-load members and invitations for all authorized households
+        for (const hh of hhs) {
+          this.loadHouseholdMembers(hh.id).catch(() => {});
+          this.loadHouseholdInvitations(hh.id).catch(() => {});
         }
       } else {
         const user = this.auth.currentUser();
@@ -565,7 +566,10 @@ export class HouseholdService {
 
     try {
       const members = await this.supabase.fetchHouseholdMembers(householdId);
-      this.householdMembers.set(members);
+      this.householdMembers.update(current => {
+        const withoutThisHh = current.filter(m => m.household_id !== householdId);
+        return [...withoutThisHh, ...members];
+      });
     } catch (err: any) {
       this.lumberjack.logWarning('Failed to load household members', { error: err?.message || String(err), householdId }, 'HouseholdService');
     }
@@ -579,7 +583,10 @@ export class HouseholdService {
 
     try {
       const invs = await this.supabase.fetchHouseholdInvitations(householdId);
-      this.householdInvitations.set(invs);
+      this.householdInvitations.update(current => {
+        const withoutThisHh = current.filter(i => i.household_id !== householdId);
+        return [...withoutThisHh, ...invs];
+      });
     } catch (err: any) {
       this.lumberjack.logWarning('Failed to load household invitations', { error: err?.message || String(err), householdId }, 'HouseholdService');
     }

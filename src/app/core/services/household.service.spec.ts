@@ -353,5 +353,38 @@ describe('HouseholdService (Membership & Role Architecture)', () => {
       expect(service.authorizedHouseholds().length).toBe(0);
       expect(service.authorizedHouseholdIds().size).toBe(0);
     });
+
+    it('should merge members across multiple households without wiping state', async () => {
+      (service as any).supabase.hasClient = true;
+      spyOn((service as any).supabase, 'fetchHouseholdMembers').and.callFake(async (hhId: string) => {
+        if (hhId === 'hh-01') {
+          return [{
+            id: 'm1',
+            household_id: 'hh-01',
+            user_id: 'u1',
+            role_in_household: 'owner' as const,
+            username: 'alice',
+            fullName: 'Alice'
+          }];
+        }
+        return [{
+          id: 'm2',
+          household_id: 'hh-02',
+          user_id: 'u2',
+          role_in_household: 'member' as const,
+          username: 'bob',
+          fullName: 'Bob'
+        }];
+      });
+
+      service.householdMembers.set([]);
+      await service.loadHouseholdMembers('hh-01');
+      expect(service.householdMembers().length).toBe(1);
+
+      await service.loadHouseholdMembers('hh-02');
+      expect(service.householdMembers().length).toBe(2);
+      expect(service.householdMembers().some(m => m.household_id === 'hh-01')).toBeTrue();
+      expect(service.householdMembers().some(m => m.household_id === 'hh-02')).toBeTrue();
+    });
   });
 });

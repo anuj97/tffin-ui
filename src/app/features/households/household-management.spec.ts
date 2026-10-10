@@ -195,4 +195,48 @@ describe('HouseholdManagementComponent', () => {
     expect(component.isCreateModalOpen()).toBeFalse();
     expect(component.selectedHouseholdId()).toBe('mock-created-01');
   });
+
+  it('should display all members of the household', () => {
+    mockMembersSignal.set([
+      {
+        id: 'hm-1',
+        household_id: 'mock-hh-02',
+        user_id: 'user-verma',
+        role_in_household: 'owner',
+        username: 'amit_verma',
+        fullName: 'Amit Verma'
+      },
+      {
+        id: 'hm-2',
+        household_id: 'mock-hh-02',
+        user_id: 'user-kiran',
+        role_in_household: 'member',
+        username: 'kiran_manager',
+        fullName: 'Kiran Manager'
+      }
+    ]);
+
+    expect(component.currentMembers().length).toBe(2);
+    expect(component.currentMembers().map(m => m.username)).toContain('kiran_manager');
+    expect(component.currentMembers().map(m => m.username)).toContain('amit_verma');
+  });
+
+  it('should include current user if not yet in roster but authorized for household', () => {
+    mockMembersSignal.set([
+      {
+        id: 'hm-2',
+        household_id: 'mock-hh-02',
+        user_id: 'user-kiran',
+        role_in_household: 'member',
+        username: 'kiran_manager',
+        fullName: 'Kiran Manager'
+      }
+    ]);
+
+    // Current user is Amit Verma, who is authorized for mock-hh-02
+    const members = component.currentMembers();
+    expect(members.length).toBe(2);
+    expect(members.some(m => m.user_id === 'user-verma')).toBeTrue();
+    expect(members.some(m => m.user_id === 'user-kiran')).toBeTrue();
+  });
 });
