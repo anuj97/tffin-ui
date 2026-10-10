@@ -109,10 +109,26 @@ export class SupabaseService {
         return null;
       }
 
-      const { data: memberRows } = await this.client
-        .from('household_members')
-        .select('household_id, role_in_household')
-        .eq('user_id', userId);
+      // Fetch memberships: try get_user_memberships RPC (SECURITY DEFINER) first, then fallback to direct query
+      let memberRows: any[] | null = null;
+      try {
+        const { data: rpcMembers, error: rpcErr } = await this.client.rpc('get_user_memberships', {
+          p_user_id: userId
+        });
+        if (!rpcErr && rpcMembers && Array.isArray(rpcMembers)) {
+          memberRows = rpcMembers;
+        }
+      } catch (e) {
+        // Fallback to direct query
+      }
+
+      if (!memberRows) {
+        const { data } = await this.client
+          .from('household_members')
+          .select('household_id, role_in_household')
+          .eq('user_id', userId);
+        memberRows = data;
+      }
 
       const memberships: UserHouseholdMembership[] = (memberRows && memberRows.length > 0)
         ? memberRows.map((m: any) => ({

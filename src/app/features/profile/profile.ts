@@ -5,6 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { MealStoreService } from '../../core/services/meal-store.service';
 import { AppUser } from '../../core/models/user.model';
+import { HouseholdMemberRole } from '../../core/models/household.model';
 
 export interface AvatarPreset {
   id: string;
@@ -138,7 +139,21 @@ export class ProfileComponent implements OnInit {
     if (u.memberships && u.memberships.length > 0) {
       return u.memberships;
     }
-    return this.store.householdMembers().filter(m => m.user_id === u.id);
+    const roster = this.store.householdMembers().filter(m => m.user_id === u.id);
+    if (roster.length > 0) {
+      return roster.map(m => ({
+        household_id: m.household_id,
+        role: m.role_in_household
+      }));
+    }
+    const authed = this.authorizedHouseholds();
+    if (authed.length > 0) {
+      return authed.map(h => ({
+        household_id: h.id,
+        role: (u.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole
+      }));
+    }
+    return [];
   });
 
   ngOnInit(): void {

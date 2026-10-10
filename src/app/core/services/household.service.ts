@@ -4,7 +4,7 @@ import { AuthService } from './auth.service';
 import { NotificationService } from './notification.service';
 import { LumberjackService } from '@ngworker/lumberjack';
 import { Household, HouseholdMember, HouseholdInvitation, HouseholdMemberRole } from '../models/household.model';
-import { UserHouseholdMembership } from '../models/user.model';
+import { AppUser, UserHouseholdMembership } from '../models/user.model';
 
 export const DEFAULT_HOUSEHOLD: Household = {
   id: 'default-household-01',
@@ -82,6 +82,25 @@ export class HouseholdService {
       if (hhs && hhs.length > 0) {
         this.households.set(hhs);
         this.lumberjack.logInfo(`Loaded ${hhs.length} households from Supabase`, undefined, 'HouseholdService');
+
+        // Reconcile current user's memberships/household_ids if not yet populated
+        const currentUser = this.auth.currentUser();
+        if (currentUser && (!currentUser.household_ids || currentUser.household_ids.length === 0 || !currentUser.memberships || currentUser.memberships.length === 0)) {
+          const hhIds = hhs.map(h => h.id);
+          const reconciledUser: AppUser = {
+            ...currentUser,
+            household_id: currentUser.household_id || hhIds[0],
+            household_ids: hhIds,
+            memberships: hhIds.map(hid => ({
+              household_id: hid,
+              role: (currentUser.role === 'owner' ? 'owner' : 'member')
+            }))
+          };
+          this.auth.currentUser.set(reconciledUser);
+          try {
+            localStorage.setItem('tffin_user_session', JSON.stringify(reconciledUser));
+          } catch {}
+        }
       } else {
         const user = this.auth.currentUser();
         // If a regular user is signed in and has no households, do not inject DEFAULT_HOUSEHOLD
@@ -102,7 +121,7 @@ export class HouseholdService {
   // Authorized households that the current signed-in user is a part of
   public authorizedHouseholds = computed<Household[]>(() => {
     const user = this.auth.currentUser();
-    const all = this.households().filter(h => h.is_active);
+    const all = this.households().filter(h => h.is_active !== false);
 
     if (!user) return all.length > 0 ? all : [DEFAULT_HOUSEHOLD];
 
@@ -116,24 +135,33 @@ export class HouseholdService {
     // 2. user.household_ids array
     // 3. user.household_id string
     // 4. householdMembers signal where user_id matches
+    // Collect all permitted household IDs:
+    // When user.memberships is present and non-empty, it is strictly authoritative.
     const allowedIds = new Set<string>();
     if (user.memberships && user.memberships.length > 0) {
       user.memberships.forEach(m => allowedIds.add(m.household_id));
-    }
-    if (user.household_ids && user.household_ids.length > 0) {
-      user.household_ids.forEach(id => allowedIds.add(id));
-    }
-    if (user.household_id) {
-      allowedIds.add(user.household_id);
-    }
-    for (const m of this.householdMembers()) {
-      if (m.user_id === user.id) {
-        allowedIds.add(m.household_id);
+    } else {
+      if (user.household_ids && user.household_ids.length > 0) {
+        user.household_ids.forEach(id => allowedIds.add(id));
+      }
+      if (user.household_id) {
+        allowedIds.add(user.household_id);
+      }
+      for (const m of this.householdMembers()) {
+        if (m.user_id === user.id) {
+          allowedIds.add(m.household_id);
+        }
       }
     }
 
     if (allowedIds.size > 0) {
       return all.filter(h => allowedIds.has(h.id));
+    }
+
+    // In Supabase mode, this.households() was already authoritatively filtered by get_authorized_households(user.id).
+    // If the server returned households, trust them even if local profile memberships haven't hydrated yet.
+    if (this.supabase.hasClient && all.length > 0) {
+      return all;
     }
 
     // New/unassigned users belong to 0 households
@@ -207,9 +235,14 @@ export class HouseholdService {
     // Chef can plan meals for any household
     if (user.role === 'chef') return 'member';
 
-    // 1. Check user memberships loaded on AppUser
+    // 1. Check user memberships loaded on AppUser (strictly authoritative if present)
     const userMem = user.memberships?.find(m => m.household_id === householdId);
     if (userMem) return userMem.role;
+
+    // If memberships array is populated, it is strictly authoritative
+    if (user.memberships && user.memberships.length > 0) {
+      return null;
+    }
 
     // 2. Check loaded householdMembers roster
     const rosterMem = this.householdMembers().find(
@@ -218,13 +251,16 @@ export class HouseholdService {
     if (rosterMem) return rosterMem.role_in_household;
 
     // 3. Fallback only for legacy users without memberships array
-    if (!user.memberships || user.memberships.length === 0) {
-      if (user.role === 'owner' && (user.household_id === householdId || user.household_ids?.includes(householdId))) {
-        return 'owner';
-      }
-      if (user.household_id === householdId || user.household_ids?.includes(householdId)) {
-        return 'member';
-      }
+    if (user.role === 'owner' && (user.household_id === householdId || user.household_ids?.includes(householdId))) {
+      return 'owner';
+    }
+    if (user.household_id === householdId || user.household_ids?.includes(householdId)) {
+      return 'member';
+    }
+
+    // 4. Default to member/owner if household is in authorized households
+    if (this.authorizedHouseholdIds().has(householdId)) {
+      return (user.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole;
     }
 
     return null;

@@ -4,9 +4,12 @@
 -- Run this script in your Supabase Dashboard -> SQL Editor
 -- This migration fixes:
 -- 1. Makes `household_members` table the authoritative source of membership truth.
--- 2. Prevents stale `app_users.household_id` from resurrecting access to removed households.
--- 3. Ensures `accept_household_invitation` initializes primary household if NULL.
--- 4. Reconciles orphan `app_users.household_id` references.
+-- 2. Solves infinite RLS recursion on `household_members` and `households`.
+-- 3. Adds SECURITY DEFINER RPCs `get_user_memberships` and `get_household_members`.
+-- 4. Ensures `get_authorized_households` handles NULL is_active and client-passed user_id.
+-- 5. Prevents stale `app_users.household_id` from resurrecting access to removed households.
+-- 6. Ensures `accept_household_invitation` initializes primary household if NULL.
+-- 7. Grants EXECUTE permissions to authenticated and anon roles.
 -- ==============================================================================
 
 -- 1. HELPER FUNCTION TO GET AUTHORIZED HOUSEHOLD IDS (AUTHORITATIVE & NON-RECURSIVE)
@@ -30,11 +33,11 @@ DECLARE
     v_user_id UUID;
     v_role TEXT;
 BEGIN
-    v_user_id := COALESCE(auth.uid(), p_user_id);
+    v_user_id := COALESCE(p_user_id, auth.uid());
 
     IF v_user_id IS NULL THEN
         -- If unauthenticated / anon, return active households
-        RETURN QUERY SELECT * FROM public.households WHERE is_active = true ORDER BY name;
+        RETURN QUERY SELECT * FROM public.households WHERE COALESCE(is_active, true) = true ORDER BY name;
         RETURN;
     END IF;
 
@@ -43,7 +46,7 @@ BEGIN
 
     -- Kitchen Admins / Chefs can view all active households
     IF v_role IN ('admin', 'chef') THEN
-        RETURN QUERY SELECT * FROM public.households WHERE is_active = true ORDER BY name;
+        RETURN QUERY SELECT * FROM public.households WHERE COALESCE(is_active, true) = true ORDER BY name;
         RETURN;
     END IF;
 
@@ -52,7 +55,7 @@ BEGIN
     RETURN QUERY
     SELECT DISTINCT h.*
     FROM public.households h
-    WHERE h.is_active = true
+    WHERE COALESCE(h.is_active, true) = true
       AND (
           h.id IN (SELECT hm.household_id FROM public.household_members hm WHERE hm.user_id = v_user_id)
           OR (
@@ -64,7 +67,122 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 3. STORED PROCEDURE: ACCEPT HOUSEHOLD INVITATION (INITIALIZE PRIMARY HOUSEHOLD IF NULL)
+-- 3. STORED PROCEDURE: GET USER MEMBERSHIPS (SECURITY DEFINER)
+-- Allows direct retrieval of user's household memberships without hitting RLS policies.
+CREATE OR REPLACE FUNCTION get_user_memberships(p_user_id UUID DEFAULT NULL)
+RETURNS TABLE (
+    household_id UUID,
+    role_in_household TEXT
+) AS $$
+DECLARE
+    v_user_id UUID;
+BEGIN
+    v_user_id := COALESCE(p_user_id, auth.uid());
+
+    IF v_user_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    -- 1. Authoritative rows from household_members
+    RETURN QUERY
+    SELECT hm.household_id, COALESCE(hm.role_in_household, 'member')::TEXT
+    FROM public.household_members hm
+    WHERE hm.user_id = v_user_id;
+
+    -- 2. Fallback to app_users.household_id ONLY if no records exist in household_members
+    IF NOT FOUND THEN
+        RETURN QUERY
+        SELECT u.household_id, 'member'::TEXT
+        FROM public.app_users u
+        WHERE u.id = v_user_id AND u.household_id IS NOT NULL;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 4. STORED PROCEDURE: GET HOUSEHOLD MEMBERS (SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION get_household_members(p_household_id UUID)
+RETURNS TABLE (
+    id UUID,
+    household_id UUID,
+    user_id UUID,
+    role_in_household TEXT,
+    created_at TIMESTAMPTZ,
+    username TEXT,
+    full_name TEXT,
+    email TEXT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        hm.id,
+        hm.household_id,
+        hm.user_id,
+        hm.role_in_household,
+        hm.created_at,
+        COALESCE(u.username, 'member') AS username,
+        COALESCE(u.full_name, u.username, 'Member') AS full_name,
+        u.email
+    FROM public.household_members hm
+    LEFT JOIN public.app_users u ON u.id = hm.user_id
+    WHERE hm.household_id = p_household_id
+    ORDER BY hm.created_at ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 5. ROW-LEVEL SECURITY (RLS) POLICIES FOR HOUSEHOLD_MEMBERS (NON-RECURSIVE)
+ALTER TABLE public.household_members ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view household members of their households" ON public.household_members;
+CREATE POLICY "Users can view household members of their households" ON public.household_members
+FOR SELECT USING (
+    -- User can always directly view their own membership rows without any subquery!
+    user_id = auth.uid()
+    OR household_id IN (SELECT get_user_household_ids(auth.uid()))
+    OR EXISTS (SELECT 1 FROM public.app_users WHERE id = auth.uid() AND role IN ('admin', 'chef'))
+    OR auth.uid() IS NULL
+);
+
+DROP POLICY IF EXISTS "Users can insert household membership for themselves or owners can add members" ON public.household_members;
+CREATE POLICY "Users can insert household membership for themselves or owners can add members" ON public.household_members
+FOR INSERT WITH CHECK (
+    user_id = auth.uid()
+    OR household_id IN (SELECT get_user_household_ids(auth.uid()))
+    OR EXISTS (SELECT 1 FROM public.app_users WHERE id = auth.uid() AND role IN ('admin', 'owner'))
+    OR auth.uid() IS NULL
+);
+
+DROP POLICY IF EXISTS "Owners can remove household members" ON public.household_members;
+CREATE POLICY "Owners can remove household members" ON public.household_members
+FOR DELETE USING (
+    user_id = auth.uid()
+    OR household_id IN (SELECT get_user_household_ids(auth.uid()))
+    OR EXISTS (SELECT 1 FROM public.app_users WHERE id = auth.uid() AND role IN ('admin', 'owner'))
+    OR auth.uid() IS NULL
+);
+
+-- 6. ROW-LEVEL SECURITY (RLS) POLICIES FOR HOUSEHOLDS (NON-RECURSIVE)
+ALTER TABLE public.households ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view authorized households" ON public.households;
+CREATE POLICY "Users can view authorized households" ON public.households
+FOR SELECT USING (
+    id IN (SELECT get_user_household_ids(auth.uid()))
+    OR EXISTS (SELECT 1 FROM public.app_users WHERE id = auth.uid() AND role IN ('admin', 'chef'))
+    OR auth.uid() IS NULL
+);
+
+-- 7. ROW-LEVEL SECURITY (RLS) POLICIES FOR MEAL_SCHEDULE (NON-RECURSIVE)
+ALTER TABLE public.meal_schedule ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view authorized meal schedules" ON public.meal_schedule;
+CREATE POLICY "Users can view authorized meal schedules" ON public.meal_schedule
+FOR SELECT USING (
+    household_id IN (SELECT get_user_household_ids(auth.uid()))
+    OR EXISTS (SELECT 1 FROM public.app_users WHERE id = auth.uid() AND role IN ('admin', 'chef'))
+    OR auth.uid() IS NULL
+);
+
+-- 8. STORED PROCEDURE: ACCEPT HOUSEHOLD INVITATION (INITIALIZE PRIMARY HOUSEHOLD IF NULL)
 CREATE OR REPLACE FUNCTION accept_household_invitation(
     p_invite_code TEXT,
     p_user_id UUID
@@ -121,7 +239,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 4. RECONCILIATION: CLEAN UP ORPHANED PRIMARY HOUSEHOLD REFERENCES
+-- 9. RECONCILIATION: CLEAN UP ORPHANED PRIMARY HOUSEHOLD REFERENCES
 -- If a user has memberships in household_members, but their app_users.household_id points
 -- to a household they are NO LONGER a member of, update it to their first active membership.
 UPDATE public.app_users u
@@ -138,3 +256,22 @@ WHERE u.household_id IS NOT NULL
       SELECT 1 FROM public.household_members hm 
       WHERE hm.user_id = u.id AND hm.household_id = u.household_id
   );
+
+-- Also backfill app_users.household_id if currently NULL but household_members has rows
+UPDATE public.app_users u
+SET household_id = (
+    SELECT hm.household_id 
+    FROM public.household_members hm 
+    WHERE hm.user_id = u.id 
+    ORDER BY hm.created_at ASC 
+    LIMIT 1
+)
+WHERE u.household_id IS NULL
+  AND EXISTS (SELECT 1 FROM public.household_members hm WHERE hm.user_id = u.id);
+
+-- 10. PERMISSIONS GRANT
+GRANT EXECUTE ON FUNCTION get_user_household_ids(UUID) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION get_authorized_households(UUID) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION get_user_memberships(UUID) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION get_household_members(UUID) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION accept_household_invitation(TEXT, UUID) TO authenticated, anon;
