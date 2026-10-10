@@ -49,7 +49,6 @@
           <div class="single-household-badge" [style.border-color]="hh.color_tag || '#6366f1'" title="Active Household: {{ hh.name }}">
             <span class="single-hh-dot" [style.background-color]="hh.color_tag || '#6366f1'"></span>
             <span class="single-hh-name">{{ hh.name }}</span>
-            <span class="single-hh-headcount">({{ hh.default_headcount }}p)</span>
           </div>
         }
       } @else {
@@ -59,10 +58,9 @@
             class="household-select" 
             [value]="selectedHouseholdId() || ''" 
             (change)="onSelectHousehold($event)">
-            <option value="">🏠 All Authorized</option>
             @for (hh of authorizedHouseholds(); track hh.id) {
               <option [value]="hh.id">
-                {{ hh.name }} ({{ hh.default_headcount }}p)
+                {{ hh.name }}
               </option>
             }
           </select>
@@ -228,7 +226,7 @@
           </svg>
         </div>
         <div class="brand-text">
-          <span class="brand-title">TIFFIN</span>
+          <span class="brand-title">TFFIN</span>
           <span class="brand-subtitle">Kitchen Admin</span>
         </div>
       </div>
@@ -368,19 +366,6 @@
           <div class="nav-label-group">
             <span class="nav-title">Households & Members</span>
             <span class="nav-desc">Profiles, dietary notes & member invites</span>
-          </div>
-        </a>
-
-        <a routerLink="/profile" routerLinkActive="active" (click)="closeSidebar()" class="drawer-nav-item">
-          <div class="nav-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-          </div>
-          <div class="nav-label-group">
-            <span class="nav-title">My Profile</span>
-            <span class="nav-desc">Account info, dietary preferences & avatar</span>
           </div>
         </a>
       </nav>
