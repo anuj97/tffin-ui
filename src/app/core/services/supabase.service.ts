@@ -121,13 +121,19 @@ export class SupabaseService {
           }))
         : [];
 
-      const memberHhIds: string[] = memberships.map(m => m.household_id);
-
-      const combinedSet = new Set<string>(memberHhIds);
-      if (userRow.household_id) {
-        combinedSet.add(userRow.household_id);
+      // If user has rows in household_members, those are their authoritative memberships.
+      // If household_members is empty but userRow.household_id is set (legacy fallback), migrate into memberships.
+      if (memberships.length === 0 && userRow.household_id) {
+        memberships.push({
+          household_id: userRow.household_id,
+          role: (userRow.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole
+        });
       }
-      const hhIds = Array.from(combinedSet);
+
+      const memberHhIds = memberships.map(m => m.household_id);
+      const activePrimaryHhId = (userRow.household_id && memberHhIds.includes(userRow.household_id))
+        ? userRow.household_id
+        : (memberHhIds.length > 0 ? memberHhIds[0] : null);
 
       return {
         id: userRow.id,
@@ -135,8 +141,8 @@ export class SupabaseService {
         email: userRow.email || undefined,
         fullName: userRow.full_name || 'Kitchen User',
         role: userRow.role || 'household_member',
-        household_id: userRow.household_id || (hhIds.length > 0 ? hhIds[0] : null),
-        household_ids: hhIds,
+        household_id: activePrimaryHhId,
+        household_ids: memberHhIds,
         memberships,
         avatar_url: userRow.avatar_url || undefined,
         phone: userRow.phone || undefined,
@@ -406,11 +412,14 @@ export class SupabaseService {
         p_user_id: userId || null
       });
 
-      if (!rpcError && rpcData && Array.isArray(rpcData) && rpcData.length > 0) {
+      if (!rpcError && rpcData && Array.isArray(rpcData)) {
         return rpcData as Household[];
       }
-    } catch (e) {
-      // Fallback to direct select
+      if (rpcError) {
+        this.lumberjack.logWarning(`get_authorized_households RPC error, falling back to direct select: ${rpcError.message}`, undefined, 'SupabaseService');
+      }
+    } catch (e: any) {
+      this.lumberjack.logWarning('get_authorized_households RPC exception, falling back to direct select', { error: e?.message || String(e) }, 'SupabaseService');
     }
 
     // 2. Direct table select fallback
@@ -672,6 +681,17 @@ export class SupabaseService {
     if (error) {
       this.lumberjack.logError('Failed to remove household member', { error: error?.message || String(error), householdId, userId }, 'SupabaseService');
       throw error;
+    }
+
+    // Also null out app_users.household_id if it matched the removed household
+    try {
+      await this.client
+        .from('app_users')
+        .update({ household_id: null })
+        .eq('id', userId)
+        .eq('household_id', householdId);
+    } catch (e: any) {
+      this.lumberjack.logWarning('Could not clear app_users.household_id after member removal', { error: e?.message || String(e) }, 'SupabaseService');
     }
   }
 

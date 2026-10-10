@@ -83,7 +83,13 @@ export class HouseholdService {
         this.households.set(hhs);
         this.lumberjack.logInfo(`Loaded ${hhs.length} households from Supabase`, undefined, 'HouseholdService');
       } else {
-        this.households.set([DEFAULT_HOUSEHOLD]);
+        const user = this.auth.currentUser();
+        // If a regular user is signed in and has no households, do not inject DEFAULT_HOUSEHOLD
+        if (user && !['admin', 'chef'].includes(user.role)) {
+          this.households.set([]);
+        } else {
+          this.households.set([DEFAULT_HOUSEHOLD]);
+        }
       }
     } catch (err: any) {
       this.lumberjack.logError('Failed to load households from Supabase', { error: err?.message || String(err) }, 'HouseholdService');
@@ -127,15 +133,7 @@ export class HouseholdService {
     }
 
     if (allowedIds.size > 0) {
-      const filtered = all.filter(h => allowedIds.has(h.id));
-      if (filtered.length > 0) {
-        return filtered;
-      }
-    }
-
-    // Legacy fallback: If user role is owner and no specific ID is mapped, allow all active
-    if (user.role === 'owner') {
-      return all;
+      return all.filter(h => allowedIds.has(h.id));
     }
 
     // New/unassigned users belong to 0 households
@@ -180,10 +178,18 @@ export class HouseholdService {
     return this.householdsMap().get(id) || null;
   });
 
-  public userMemberships = computed(() => {
+  public userMemberships = computed<UserHouseholdMembership[]>(() => {
     const u = this.auth.currentUser();
     if (!u) return [];
-    return this.householdMembers().filter(m => m.user_id === u.id);
+    if (u.memberships && u.memberships.length > 0) {
+      return u.memberships;
+    }
+    return this.householdMembers()
+      .filter(m => m.user_id === u.id)
+      .map(m => ({
+        household_id: m.household_id,
+        role: m.role_in_household
+      }));
   });
 
   // Household Selection
@@ -211,14 +217,14 @@ export class HouseholdService {
     );
     if (rosterMem) return rosterMem.role_in_household;
 
-    // 3. Fallback: if legacy role is 'owner' and user is linked to household
-    if (user.role === 'owner' && (user.household_id === householdId || user.household_ids?.includes(householdId))) {
-      return 'owner';
-    }
-
-    // 4. Default to 'member' if user is linked
-    if (user.household_id === householdId || user.household_ids?.includes(householdId)) {
-      return 'member';
+    // 3. Fallback only for legacy users without memberships array
+    if (!user.memberships || user.memberships.length === 0) {
+      if (user.role === 'owner' && (user.household_id === householdId || user.household_ids?.includes(householdId))) {
+        return 'owner';
+      }
+      if (user.household_id === householdId || user.household_ids?.includes(householdId)) {
+        return 'member';
+      }
     }
 
     return null;
@@ -618,10 +624,30 @@ export class HouseholdService {
       return;
     }
 
+    const syncCurrentRemovedUser = () => {
+      const user = this.auth.currentUser();
+      if (user && user.id === userId) {
+        const updatedIds = (user.household_ids || []).filter(id => id !== householdId);
+        const updatedMems = (user.memberships || []).filter(m => m.household_id !== householdId);
+        const updatedUser = {
+          ...user,
+          household_ids: updatedIds,
+          household_id: user.household_id === householdId ? (updatedIds[0] || null) : user.household_id,
+          memberships: updatedMems
+        };
+        this.auth.currentUser.set(updatedUser);
+        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
+        if (this.selectedHouseholdId() === householdId) {
+          this.selectedHouseholdId.set(null);
+        }
+      }
+    };
+
     if (!this.supabase.hasClient) {
       this.householdMembers.update(list => 
         list.filter(m => !(m.household_id === householdId && m.user_id === userId))
       );
+      syncCurrentRemovedUser();
       this.lumberjack.logInfo('Member removed locally', { householdId, userId }, 'HouseholdService');
       this.notifications.show('Member removed from household', 'info');
       return;
@@ -632,6 +658,7 @@ export class HouseholdService {
       this.householdMembers.update(list => 
         list.filter(m => !(m.household_id === householdId && m.user_id === userId))
       );
+      syncCurrentRemovedUser();
       this.lumberjack.logInfo('Member removed in Supabase', { householdId, userId }, 'HouseholdService');
       this.notifications.show('Member removed from household', 'info');
     } catch (err: any) {

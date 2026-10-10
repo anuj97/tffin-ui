@@ -135,6 +135,9 @@ export class ProfileComponent implements OnInit {
   public userMemberships = computed(() => {
     const u = this.currentUser();
     if (!u) return [];
+    if (u.memberships && u.memberships.length > 0) {
+      return u.memberships;
+    }
     return this.store.householdMembers().filter(m => m.user_id === u.id);
   });
 

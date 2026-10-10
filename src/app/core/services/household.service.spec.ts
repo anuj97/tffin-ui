@@ -299,5 +299,59 @@ describe('HouseholdService (Membership & Role Architecture)', () => {
       expect(member).toBeTruthy();
       expect(member?.role_in_household).toBe('member');
     });
+
+    it('should sync currentUser session when the removed member is the currently signed-in user', async () => {
+      currentUserSignal.set({
+        id: 'user-member-to-remove',
+        username: 'member_remove',
+        fullName: 'Member To Remove',
+        role: 'household_member',
+        household_id: 'mock-hh-02',
+        household_ids: ['mock-hh-02'],
+        memberships: [{ household_id: 'mock-hh-02', role: 'member' }]
+      });
+
+      // Set owner as caller so canManage passes
+      spyOn(service, 'canManage').and.returnValue(true);
+
+      await service.removeMember('mock-hh-02', 'user-member-to-remove');
+
+      const updated = mockAuthService.currentUser();
+      expect(updated?.household_ids).not.toContain('mock-hh-02');
+      expect(updated?.memberships?.some(m => m.household_id === 'mock-hh-02')).toBeFalse();
+      expect(updated?.household_id).toBeNull();
+    });
+
+    it('should not grant role or access when memberships is non-empty and does not contain household', () => {
+      currentUserSignal.set({
+        id: 'user-strict',
+        username: 'strict_user',
+        fullName: 'Strict User',
+        role: 'household_member',
+        household_id: 'mock-hh-01', // Stale scalar
+        household_ids: ['mock-hh-02'],
+        memberships: [{ household_id: 'mock-hh-02', role: 'member' }]
+      });
+
+      // mock-hh-01 is not in user.memberships
+      expect(service.getRoleInHousehold('mock-hh-01')).toBeNull();
+      expect(service.getRoleInHousehold('mock-hh-02')).toBe('member');
+    });
+
+    it('should return empty authorizedHouseholds and not leak all households for unassigned users', () => {
+      currentUserSignal.set({
+        id: 'user-unassigned',
+        username: 'unassigned_user',
+        fullName: 'Unassigned User',
+        role: 'household_member',
+        household_id: null,
+        household_ids: [],
+        memberships: []
+      });
+
+      // Even though MOCK_HOUSEHOLDS has active households, user is authorized for 0
+      expect(service.authorizedHouseholds().length).toBe(0);
+      expect(service.authorizedHouseholdIds().size).toBe(0);
+    });
   });
 });
