@@ -182,17 +182,19 @@ export class SupabaseService {
 
     try {
       this.lumberjack.logInfo('Updating app user profile', { userId, fields: Object.keys(updates) }, 'SupabaseService');
-      const payload: Record<string, any> = {};
-      if (updates.fullName !== undefined) payload['full_name'] = updates.fullName.trim();
-      if (updates.username !== undefined) payload['username'] = updates.username.trim().toLowerCase();
-      if (updates.email !== undefined) payload['email'] = updates.email ? updates.email.trim() : null;
-      if (updates.avatar_url !== undefined) payload['avatar_url'] = updates.avatar_url;
+      const corePayload: Record<string, any> = {};
+      if (updates.fullName !== undefined) corePayload['full_name'] = updates.fullName.trim();
+      if (updates.username !== undefined) corePayload['username'] = updates.username.trim().toLowerCase();
+      if (updates.email !== undefined) corePayload['email'] = updates.email ? updates.email.trim() : null;
+      if (updates.avatar_url !== undefined) corePayload['avatar_url'] = updates.avatar_url;
+      if (updates.household_id !== undefined) corePayload['household_id'] = updates.household_id;
+
+      const payload: Record<string, any> = { ...corePayload };
       if (updates.phone !== undefined) payload['phone'] = updates.phone ? updates.phone.trim() : null;
       if (updates.dietary_preferences !== undefined) payload['dietary_preferences'] = updates.dietary_preferences;
       if (updates.bio !== undefined) payload['bio'] = updates.bio;
-      if (updates.household_id !== undefined) payload['household_id'] = updates.household_id;
 
-      let { data, error } = await this.client
+      let { error } = await this.client
         .from('app_users')
         .update(payload)
         .eq('id', userId)
@@ -201,22 +203,14 @@ export class SupabaseService {
 
       // Fallback: If newer optional columns don't exist yet, retry updating core fields
       if (error && (error.message.includes('column') || error.message.includes('schema'))) {
-        const fallbackPayload: Record<string, any> = {};
-        if (updates.fullName !== undefined) fallbackPayload['full_name'] = updates.fullName.trim();
-        if (updates.username !== undefined) fallbackPayload['username'] = updates.username.trim().toLowerCase();
-        if (updates.email !== undefined) fallbackPayload['email'] = updates.email ? updates.email.trim() : null;
-        if (updates.avatar_url !== undefined) fallbackPayload['avatar_url'] = updates.avatar_url;
-        if (updates.household_id !== undefined) fallbackPayload['household_id'] = updates.household_id;
-
         const retryRes = await this.client
           .from('app_users')
-          .update(fallbackPayload)
+          .update(corePayload)
           .eq('id', userId)
           .select()
           .maybeSingle();
 
         error = retryRes.error;
-        data = retryRes.data;
       }
 
       if (error) {
@@ -233,7 +227,7 @@ export class SupabaseService {
             avatar_url: updates.avatar_url
           }
         });
-      } catch (authErr) {
+      } catch {
         // Non-fatal for standalone app_users
       }
 
@@ -492,6 +486,18 @@ export class SupabaseService {
       this.lumberjack.logError('Failed to insert household record', { error: error?.message || String(error) }, 'SupabaseService');
       throw error;
     }
+
+    if (userId) {
+      try {
+        await this.client.from('household_members').upsert(
+          { household_id: data.id, user_id: userId, role_in_household: 'owner' },
+          { onConflict: 'household_id,user_id' }
+        );
+      } catch {
+        // Non-fatal fallback
+      }
+    }
+
     this.lumberjack.logInfo('Household created successfully via direct insert', { id: data.id, name: data.name }, 'SupabaseService');
     return data;
   }
@@ -548,26 +554,30 @@ export class SupabaseService {
     if (!this.client) return [];
 
     const memberMap = new Map<string, HouseholdMember>();
+    const addMember = (row: any, userInfo?: any) => {
+      const userId = row.user_id || row.id;
+      if (!userId || memberMap.has(userId)) return;
+      const username = userInfo?.username || row.username || 'member';
+      memberMap.set(userId, {
+        id: row.id,
+        household_id: row.household_id || householdId,
+        user_id: userId,
+        role_in_household: (row.role_in_household || 'owner') as HouseholdMemberRole,
+        created_at: row.created_at,
+        username,
+        fullName: userInfo?.full_name || row.full_name || username || 'Member',
+        email: userInfo?.email || row.email
+      });
+    };
 
-    // 1. Try get_household_members RPC first (SECURITY DEFINER)
+    // 1. Primary: get_household_members RPC (SECURITY DEFINER)
     try {
       const { data: rpcData, error: rpcError } = await this.client.rpc('get_household_members', {
         p_household_id: householdId
       });
 
-      if (!rpcError && rpcData && Array.isArray(rpcData)) {
-        for (const row of rpcData) {
-          memberMap.set(row.user_id || row.id, {
-            id: row.id,
-            household_id: row.household_id,
-            user_id: row.user_id,
-            role_in_household: row.role_in_household || 'owner',
-            created_at: row.created_at,
-            username: row.username || 'member',
-            fullName: row.full_name || row.username || 'Member',
-            email: row.email
-          });
-        }
+      if (!rpcError && Array.isArray(rpcData)) {
+        rpcData.forEach(row => addMember(row));
       } else if (rpcError) {
         this.lumberjack.logWarning(`get_household_members RPC error, falling back: ${rpcError.message}`, undefined, 'SupabaseService');
       }
@@ -575,95 +585,47 @@ export class SupabaseService {
       this.lumberjack.logWarning('get_household_members RPC exception, falling back', { error: e?.message || String(e) }, 'SupabaseService');
     }
 
-    // 2. Direct joined table query fallback (from household_members)
+    // 2. Fallback: Direct household_members table query if RPC returned nothing
     if (memberMap.size === 0) {
       try {
         const { data, error } = await this.client
           .from('household_members')
-          .select(`
-            id,
-            household_id,
-            user_id,
-            role_in_household,
-            created_at,
-            app_users (
-              username,
-              full_name,
-              email
-            )
-          `)
+          .select('id, household_id, user_id, role_in_household, created_at, app_users(username, full_name, email)')
           .eq('household_id', householdId);
 
-        if (!error && data && Array.isArray(data)) {
+        if (!error && Array.isArray(data)) {
           for (const row of data as any[]) {
             const userObj = Array.isArray(row.app_users) ? row.app_users[0] : row.app_users;
-            memberMap.set(row.user_id || row.id, {
-              id: row.id,
-              household_id: row.household_id,
-              user_id: row.user_id,
-              role_in_household: row.role_in_household || 'owner',
-              created_at: row.created_at,
-              username: userObj?.username || 'member',
-              fullName: userObj?.full_name || userObj?.username || 'Member',
-              email: userObj?.email
-            });
+            addMember(row, userObj);
           }
         }
-      } catch (e) {
-        // Fallback to simple table query
+      } catch {
+        // Non-fatal fallback
       }
     }
 
-    // 3. Direct simple table query fallback without foreign table join
-    if (memberMap.size === 0) {
-      try {
-        const { data: simpleData, error: simpleError } = await this.client
-          .from('household_members')
-          .select('*')
-          .eq('household_id', householdId);
-
-        if (!simpleError && simpleData && Array.isArray(simpleData)) {
-          for (const row of simpleData) {
-            memberMap.set(row.user_id || row.id, {
-              id: row.id,
-              household_id: row.household_id,
-              user_id: row.user_id,
-              role_in_household: row.role_in_household || 'owner',
-              created_at: row.created_at,
-              username: 'member',
-              fullName: 'Household Member'
-            });
-          }
-        }
-      } catch (e) {
-        this.lumberjack.logWarning('Direct household_members simple query failed', undefined, 'SupabaseService');
-      }
-    }
-
-    // 4. Also include any users linked via app_users.household_id (legacy or primary household assignment)
+    // 3. Ensure any users linked via app_users.household_id are included
     try {
       const { data: appUsersData, error: appUsersErr } = await this.client
         .from('app_users')
         .select('id, username, full_name, email, role, created_at')
         .eq('household_id', householdId);
 
-      if (!appUsersErr && appUsersData && Array.isArray(appUsersData)) {
+      if (!appUsersErr && Array.isArray(appUsersData)) {
         for (const u of appUsersData) {
-          if (!memberMap.has(u.id)) {
-            memberMap.set(u.id, {
-              id: `app-user-${u.id}`,
-              household_id: householdId,
-              user_id: u.id,
-              role_in_household: (u.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole,
-              created_at: u.created_at || new Date().toISOString(),
-              username: u.username || 'member',
-              fullName: u.full_name || u.username || 'Member',
-              email: u.email
-            });
-          }
+          addMember({
+            id: `app-user-${u.id}`,
+            household_id: householdId,
+            user_id: u.id,
+            role_in_household: u.role === 'owner' ? 'owner' : 'member',
+            created_at: u.created_at,
+            username: u.username,
+            full_name: u.full_name,
+            email: u.email
+          });
         }
       }
-    } catch (e) {
+    } catch {
       // Non-fatal
     }
 

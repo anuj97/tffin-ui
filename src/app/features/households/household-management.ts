@@ -165,11 +165,6 @@ export class HouseholdManagementComponent implements OnInit {
     const initialHhId = this.householdService.effectiveHouseholdId() || this.activeHouseholds()[0]?.id || '';
     this.selectedHouseholdId.set(initialHhId);
 
-    if (initialHhId) {
-      this.householdService.loadHouseholdMembers(initialHhId);
-      this.householdService.loadHouseholdInvitations(initialHhId);
-    }
-
     // Check for '?join=CODE' query parameter
     const joinCode = this.route.snapshot.queryParams['join'];
     if (joinCode) {

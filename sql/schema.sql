@@ -36,10 +36,15 @@ ON CONFLICT (name) DO NOTHING;
 CREATE TABLE IF NOT EXISTS app_users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username TEXT UNIQUE NOT NULL,
+    email TEXT,
     password_hash TEXT NOT NULL,
     full_name TEXT DEFAULT 'Kitchen Admin',
     role TEXT DEFAULT 'admin', -- 'admin', 'chef', 'staff', 'household_member'
     household_id UUID REFERENCES households(id) ON DELETE SET NULL,
+    avatar_url TEXT,
+    phone TEXT,
+    dietary_preferences TEXT,
+    bio TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -283,56 +288,177 @@ BEGIN
     SET status = 'accepted', accepted_at = now(), accepted_by = p_user_id
     WHERE id = v_inv.id;
 
+    UPDATE public.app_users
+    SET household_id = v_inv.household_id
+    WHERE id = p_user_id AND household_id IS NULL;
+
     RETURN QUERY SELECT true, 'Successfully joined household'::TEXT, v_inv.household_id, v_inv.hh_name, v_inv.role_in_household;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 9. ROW-LEVEL SECURITY POLICIES
+-- 9. NON-RECURSIVE MEMBERSHIP HELPERS & RPCs (SECURITY DEFINER)
+CREATE OR REPLACE FUNCTION get_user_household_ids(p_user_id UUID)
+RETURNS SETOF UUID AS $$
+    SELECT household_id FROM public.household_members WHERE user_id = p_user_id
+    UNION
+    SELECT household_id FROM public.app_users 
+    WHERE id = p_user_id 
+      AND household_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM public.household_members WHERE user_id = p_user_id);
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION get_authorized_households(p_user_id UUID DEFAULT NULL)
+RETURNS SETOF public.households AS $$
+DECLARE
+    v_user_id UUID;
+    v_role TEXT;
+BEGIN
+    v_user_id := COALESCE(p_user_id, auth.uid());
+
+    IF v_user_id IS NULL THEN
+        RETURN QUERY SELECT * FROM public.households WHERE COALESCE(is_active, true) = true ORDER BY name;
+        RETURN;
+    END IF;
+
+    SELECT role INTO v_role FROM public.app_users WHERE id = v_user_id;
+
+    IF v_role IN ('admin', 'chef') THEN
+        RETURN QUERY SELECT * FROM public.households WHERE COALESCE(is_active, true) = true ORDER BY name;
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    SELECT DISTINCT h.*
+    FROM public.households h
+    WHERE COALESCE(h.is_active, true) = true
+      AND h.id IN (SELECT get_user_household_ids(v_user_id))
+    ORDER BY h.name;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION get_user_memberships(p_user_id UUID DEFAULT NULL)
+RETURNS TABLE (
+    household_id UUID,
+    role_in_household TEXT
+) AS $$
+DECLARE
+    v_user_id UUID;
+BEGIN
+    v_user_id := COALESCE(p_user_id, auth.uid());
+    IF v_user_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    SELECT hm.household_id, COALESCE(hm.role_in_household, 'owner')::TEXT
+    FROM public.household_members hm
+    WHERE hm.user_id = v_user_id;
+
+    IF NOT FOUND THEN
+        RETURN QUERY
+        SELECT u.household_id, 'owner'::TEXT
+        FROM public.app_users u
+        WHERE u.id = v_user_id AND u.household_id IS NOT NULL;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION get_household_members(p_household_id UUID)
+RETURNS TABLE (
+    id UUID,
+    household_id UUID,
+    user_id UUID,
+    role_in_household TEXT,
+    created_at TIMESTAMPTZ,
+    username TEXT,
+    full_name TEXT,
+    email TEXT
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH all_members AS (
+        SELECT 
+            hm.id,
+            hm.household_id,
+            hm.user_id,
+            COALESCE(hm.role_in_household, 'owner')::TEXT AS role_in_household,
+            hm.created_at,
+            COALESCE(u.username, 'member')::TEXT AS username,
+            COALESCE(u.full_name, u.username, 'Member')::TEXT AS full_name,
+            u.email::TEXT AS email
+        FROM public.household_members hm
+        LEFT JOIN public.app_users u ON u.id = hm.user_id
+        WHERE hm.household_id = p_household_id
+
+        UNION ALL
+
+        SELECT 
+            gen_random_uuid() AS id,
+            u.household_id,
+            u.id AS user_id,
+            CASE WHEN u.role = 'owner' THEN 'owner' ELSE 'member' END AS role_in_household,
+            COALESCE(u.created_at, now()) AS created_at,
+            COALESCE(u.username, 'member')::TEXT AS username,
+            COALESCE(u.full_name, u.username, 'Member')::TEXT AS full_name,
+            u.email::TEXT AS email
+        FROM public.app_users u
+        WHERE u.household_id = p_household_id
+          AND NOT EXISTS (
+              SELECT 1 FROM public.household_members hm 
+              WHERE hm.household_id = p_household_id AND hm.user_id = u.id
+          )
+    )
+    SELECT * FROM all_members
+    ORDER BY created_at ASC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 10. ROW-LEVEL SECURITY POLICIES (NON-RECURSIVE)
 ALTER TABLE households ENABLE ROW LEVEL SECURITY;
 ALTER TABLE meal_schedule ENABLE ROW LEVEL SECURITY;
+ALTER TABLE household_members ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Users can view authorized households" ON households;
 CREATE POLICY "Users can view authorized households" ON households
 FOR SELECT USING (
-    id IN (SELECT hm.household_id FROM household_members hm WHERE hm.user_id = auth.uid())
+    id IN (SELECT get_user_household_ids(auth.uid()))
     OR EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role IN ('admin', 'chef'))
+    OR auth.uid() IS NULL
 );
 
 DROP POLICY IF EXISTS "Admins or owners can update households" ON households;
 CREATE POLICY "Admins or owners can update households" ON households
 FOR UPDATE USING (
-    id IN (SELECT hm.household_id FROM household_members hm WHERE hm.user_id = auth.uid() AND hm.role_in_household = 'owner')
+    id IN (SELECT get_user_household_ids(auth.uid()))
     OR EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role IN ('admin', 'owner'))
 );
 
 DROP POLICY IF EXISTS "Admins or owners can delete households" ON households;
 CREATE POLICY "Admins or owners can delete households" ON households
 FOR DELETE USING (
-    id IN (SELECT hm.household_id FROM household_members hm WHERE hm.user_id = auth.uid() AND hm.role_in_household = 'owner')
+    id IN (SELECT get_user_household_ids(auth.uid()))
     OR EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role IN ('admin', 'owner'))
 );
 
 DROP POLICY IF EXISTS "Users can view authorized meal schedules" ON meal_schedule;
 CREATE POLICY "Users can view authorized meal schedules" ON meal_schedule
 FOR SELECT USING (
-    household_id IN (SELECT hm.household_id FROM household_members hm WHERE hm.user_id = auth.uid())
+    household_id IN (SELECT get_user_household_ids(auth.uid()))
     OR EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role IN ('admin', 'chef'))
+    OR auth.uid() IS NULL
 );
 
--- Allow creating new households
 DROP POLICY IF EXISTS "Users can create households" ON households;
 CREATE POLICY "Users can create households" ON households
 FOR INSERT WITH CHECK (
     true
 );
 
--- Row-level security for household_members
-ALTER TABLE household_members ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "Users can view household members of their households" ON household_members;
 CREATE POLICY "Users can view household members of their households" ON household_members
 FOR SELECT USING (
-    household_id IN (SELECT hm.household_id FROM household_members hm WHERE hm.user_id = auth.uid())
+    user_id = auth.uid()
+    OR household_id IN (SELECT get_user_household_ids(auth.uid()))
     OR EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role IN ('admin', 'chef'))
     OR auth.uid() IS NULL
 );
@@ -341,7 +467,7 @@ DROP POLICY IF EXISTS "Users can insert household membership for themselves or o
 CREATE POLICY "Users can insert household membership for themselves or owners can add members" ON household_members
 FOR INSERT WITH CHECK (
     user_id = auth.uid()
-    OR household_id IN (SELECT hm.household_id FROM household_members hm WHERE hm.user_id = auth.uid() AND hm.role_in_household = 'owner')
+    OR household_id IN (SELECT get_user_household_ids(auth.uid()))
     OR EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role IN ('admin', 'owner'))
     OR auth.uid() IS NULL
 );
@@ -350,7 +476,7 @@ DROP POLICY IF EXISTS "Owners can remove household members" ON household_members
 CREATE POLICY "Owners can remove household members" ON household_members
 FOR DELETE USING (
     user_id = auth.uid()
-    OR household_id IN (SELECT hm.household_id FROM household_members hm WHERE hm.user_id = auth.uid() AND hm.role_in_household = 'owner')
+    OR household_id IN (SELECT get_user_household_ids(auth.uid()))
     OR EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role IN ('admin', 'owner'))
     OR auth.uid() IS NULL
 );

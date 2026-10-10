@@ -25,6 +25,7 @@ export class HouseholdService {
   private supabase = inject(SupabaseService);
   private auth = inject(AuthService);
   private notifications = inject(NotificationService);
+  private lastSyncedUserId: string | null = null;
 
   // State Signals
   public households = signal<Household[]>([DEFAULT_HOUSEHOLD]);
@@ -37,28 +38,19 @@ export class HouseholdService {
   constructor() {
     this.init();
 
-    // Automatically re-sync households when authenticated user changes
+    // Automatically re-sync households only when the authenticated user ID changes
     effect(() => {
       const user = this.auth.currentUser();
-      if (this.supabase.hasClient && user) {
+      const userId = user?.id || null;
+      if (this.supabase.hasClient && userId && userId !== this.lastSyncedUserId) {
+        this.lastSyncedUserId = userId;
         untracked(() => {
           this.loadFromSupabase().catch(err => {
             this.lumberjack.logWarning('Failed to load households for user session', { error: err?.message || String(err) }, 'HouseholdService');
           });
         });
-      }
-    });
-
-    // Automatically synchronize members and invitations whenever authorized households change
-    effect(() => {
-      const hhs = this.authorizedHouseholds();
-      if (this.supabase.hasClient && hhs.length > 0) {
-        untracked(() => {
-          for (const hh of hhs) {
-            this.loadHouseholdMembers(hh.id).catch(() => {});
-            this.loadHouseholdInvitations(hh.id).catch(() => {});
-          }
-        });
+      } else if (!userId) {
+        this.lastSyncedUserId = null;
       }
     });
   }
@@ -71,6 +63,7 @@ export class HouseholdService {
 
     this.isLoading.set(true);
     try {
+      this.lastSyncedUserId = this.auth.currentUser()?.id || null;
       await this.loadFromSupabase();
     } catch (err: any) {
       this.lumberjack.logWarning('Failed to load households from Supabase', { error: err?.message || String(err) }, 'HouseholdService');
@@ -80,6 +73,7 @@ export class HouseholdService {
   }
 
   public clearState(): void {
+    this.lastSyncedUserId = null;
     this.households.set([DEFAULT_HOUSEHOLD]);
     this.householdMembers.set([]);
     this.householdInvitations.set([]);
@@ -96,29 +90,27 @@ export class HouseholdService {
         this.households.set(hhs);
         this.lumberjack.logInfo(`Loaded ${hhs.length} households from Supabase`, undefined, 'HouseholdService');
 
-        // Fetch authoritative profile with true memberships from Supabase (never fabricate roles)
         if (userId) {
           try {
             const freshProfile = await this.supabase.fetchAppUserById(userId);
             if (freshProfile) {
-              this.auth.currentUser.set(freshProfile);
-              try {
-                localStorage.setItem('tffin_auth_user', JSON.stringify(freshProfile));
-              } catch {}
+              this.persistSessionUser(freshProfile);
             }
           } catch (e) {
             this.lumberjack.logWarning('Could not refresh user profile in loadFromSupabase', { error: String(e) }, 'HouseholdService');
           }
         }
 
-        // Auto-load members and invitations for all authorized households
-        for (const hh of hhs) {
-          this.loadHouseholdMembers(hh.id).catch(() => {});
-          this.loadHouseholdInvitations(hh.id).catch(() => {});
-        }
+        await Promise.all(
+          hhs.map(hh =>
+            Promise.all([
+              this.loadHouseholdMembers(hh.id),
+              this.loadHouseholdInvitations(hh.id)
+            ])
+          )
+        );
       } else {
         const user = this.auth.currentUser();
-        // If a regular user is signed in and has no households, do not inject DEFAULT_HOUSEHOLD
         if (user && !['admin', 'chef'].includes(user.role)) {
           this.households.set([]);
         } else {
@@ -132,54 +124,57 @@ export class HouseholdService {
     }
   }
 
-  // Lookups & Computeds
+  // Single Computed Source of Truth for User Memberships & Roles
+  public userMemberships = computed<UserHouseholdMembership[]>(() => {
+    const user = this.auth.currentUser();
+    if (!user) return [];
+
+    const rosterByHh = new Map<string, HouseholdMemberRole>();
+    for (const m of this.householdMembers()) {
+      if (m.user_id === user.id) {
+        rosterByHh.set(m.household_id, m.role_in_household);
+      }
+    }
+
+    // When user.memberships is populated, it is strictly authoritative for which households the user belongs to
+    if (user.memberships && user.memberships.length > 0) {
+      return user.memberships.map(m => ({
+        household_id: m.household_id,
+        role: rosterByHh.get(m.household_id) || m.role
+      }));
+    }
+
+    // Fallback for legacy/fixture users without memberships array
+    const fallbackIds = new Set<string>(user.household_ids || []);
+    if (user.household_id) fallbackIds.add(user.household_id);
+    for (const hhId of rosterByHh.keys()) fallbackIds.add(hhId);
+
+    const defaultRole: HouseholdMemberRole = user.role === 'owner' ? 'owner' : 'member';
+    return Array.from(fallbackIds).map(hhId => ({
+      household_id: hhId,
+      role: rosterByHh.get(hhId) || defaultRole
+    }));
+  });
+
   // Authorized households that the current signed-in user is a part of
   public authorizedHouseholds = computed<Household[]>(() => {
     const user = this.auth.currentUser();
     const all = this.households().filter(h => h.is_active !== false);
 
-    if (!user) return all.length > 0 ? all : [DEFAULT_HOUSEHOLD];
-
-    // Unrestricted admin / kitchen staff can view all active households
-    if (user.role === 'admin' || user.role === 'chef') {
+    if (!user || user.role === 'admin' || user.role === 'chef') {
       return all.length > 0 ? all : [DEFAULT_HOUSEHOLD];
     }
 
-    // Collect all permitted household IDs from:
-    // 1. user.memberships array
-    // 2. user.household_ids array
-    // 3. user.household_id string
-    // 4. householdMembers signal where user_id matches
-    // Collect all permitted household IDs:
-    // When user.memberships is present and non-empty, it is strictly authoritative.
-    const allowedIds = new Set<string>();
-    if (user.memberships && user.memberships.length > 0) {
-      user.memberships.forEach(m => allowedIds.add(m.household_id));
-    } else {
-      if (user.household_ids && user.household_ids.length > 0) {
-        user.household_ids.forEach(id => allowedIds.add(id));
-      }
-      if (user.household_id) {
-        allowedIds.add(user.household_id);
-      }
-      for (const m of this.householdMembers()) {
-        if (m.user_id === user.id) {
-          allowedIds.add(m.household_id);
-        }
-      }
-    }
-
+    const allowedIds = new Set(this.userMemberships().map(m => m.household_id));
     if (allowedIds.size > 0) {
       return all.filter(h => allowedIds.has(h.id));
     }
 
-    // In Supabase mode, this.households() was already authoritatively filtered by get_authorized_households(user.id).
-    // If the server returned households, trust them even if local profile memberships haven't hydrated yet.
+    // In Supabase mode, this.households() was already filtered by get_authorized_households(user.id)
     if (this.supabase.hasClient && all.length > 0) {
       return all;
     }
 
-    // New/unassigned users belong to 0 households
     return [];
   });
 
@@ -221,23 +216,25 @@ export class HouseholdService {
     return this.householdsMap().get(id) || null;
   });
 
-  public userMemberships = computed<UserHouseholdMembership[]>(() => {
-    const u = this.auth.currentUser();
-    if (!u) return [];
-    if (u.memberships && u.memberships.length > 0) {
-      return u.memberships;
-    }
-    return this.householdMembers()
-      .filter(m => m.user_id === u.id)
-      .map(m => ({
-        household_id: m.household_id,
-        role: m.role_in_household
-      }));
-  });
-
-  // Household Selection
+  // Household Selection & Target Resolution
   public setSelectedHousehold(id: string | null): void {
     this.selectedHouseholdId.set(id);
+  }
+
+  public resolveTargetHouseholdId(preferredId?: string | null): string {
+    const authIds = this.authorizedHouseholdIds();
+    if (preferredId && authIds.has(preferredId)) {
+      return preferredId;
+    }
+    const eff = this.effectiveHouseholdId();
+    if (eff && authIds.has(eff)) {
+      return eff;
+    }
+    const sel = this.selectedHouseholdId();
+    if (sel && authIds.has(sel)) {
+      return sel;
+    }
+    return this.activeHouseholds()[0]?.id || '';
   }
 
   // Role and Permission Resolution
@@ -245,35 +242,16 @@ export class HouseholdService {
     const user = this.auth.currentUser();
     if (!user) return null;
 
-    // Kitchen admin has superuser permissions
     if (user.role === 'admin') return 'owner';
-    // Chef can plan meals for any household
     if (user.role === 'chef') return 'member';
 
-    // 1. Check loaded householdMembers roster (direct database rows for this household)
-    const rosterMem = this.householdMembers().find(
-      m => m.household_id === householdId && m.user_id === user.id
-    );
-    if (rosterMem) return rosterMem.role_in_household;
+    const membership = this.userMemberships().find(m => m.household_id === householdId);
+    if (membership) return membership.role;
 
-    // 2. Check user memberships loaded on AppUser
-    const userMem = user.memberships?.find(m => m.household_id === householdId);
-    if (userMem) return userMem.role;
-
-    // If memberships array is populated and didn't match household, user is not a member
     if (user.memberships && user.memberships.length > 0) {
       return null;
     }
 
-    // 3. Fallback only for legacy users without memberships array
-    if (user.role === 'owner' && (user.household_id === householdId || user.household_ids?.includes(householdId))) {
-      return 'owner';
-    }
-    if (user.household_id === householdId || user.household_ids?.includes(householdId)) {
-      return 'member';
-    }
-
-    // 4. Default to member/owner if household is in authorized households
     if (this.authorizedHouseholdIds().has(householdId)) {
       return (user.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole;
     }
@@ -311,7 +289,7 @@ export class HouseholdService {
     if (!user) return false;
     if (['admin', 'chef'].includes(user.role)) return true;
     const authed = this.authorizedHouseholds();
-    if (authed.length === 0) return true; // Unassigned user can create one
+    if (authed.length === 0) return true;
     return authed.some(h => this.isOwner(h.id));
   });
 
@@ -324,6 +302,54 @@ export class HouseholdService {
     }
     return set;
   });
+
+  // Centralized User Membership Session Sync Helpers
+  private persistSessionUser(user: AppUser): void {
+    if (typeof (this.auth as any).setSessionUser === 'function') {
+      this.auth.setSessionUser(user);
+    } else {
+      this.auth.currentUser.set(user);
+      try {
+        localStorage.setItem('tffin_auth_user', JSON.stringify(user));
+      } catch {}
+    }
+  }
+
+  private addUserMembership(householdId: string, role: HouseholdMemberRole, setAsPrimary: boolean = false): void {
+    const user = this.auth.currentUser();
+    if (!user) return;
+
+    const currentIds = user.household_ids || [];
+    const currentMems = (user.memberships || []).filter(m => m.household_id !== householdId);
+    const nextIds = currentIds.includes(householdId) ? currentIds : [...currentIds, householdId];
+
+    this.persistSessionUser({
+      ...user,
+      household_id: setAsPrimary ? householdId : (user.household_id || householdId),
+      household_ids: nextIds,
+      memberships: [...currentMems, { household_id: householdId, role }]
+    });
+  }
+
+  private removeUserMembership(householdId: string): void {
+    const user = this.auth.currentUser();
+    if (!user) return;
+
+    const hasId = user.household_id === householdId ||
+      user.household_ids?.includes(householdId) ||
+      user.memberships?.some(m => m.household_id === householdId);
+    if (!hasId) return;
+
+    const updatedIds = (user.household_ids || []).filter(id => id !== householdId);
+    const updatedMems = (user.memberships || []).filter(m => m.household_id !== householdId);
+
+    this.persistSessionUser({
+      ...user,
+      household_ids: updatedIds,
+      household_id: user.household_id === householdId ? (updatedIds[0] || null) : user.household_id,
+      memberships: updatedMems
+    });
+  }
 
   // Household CRUD Actions
   public async createHousehold(household: Partial<Household>): Promise<Household | null> {
@@ -338,89 +364,46 @@ export class HouseholdService {
       return null;
     }
 
-    if (!this.supabase.hasClient) {
-      const newHh: Household = {
-        id: 'hh-' + Date.now(),
-        name: household.name || 'New Household',
-        code: household.code || `HH-${this.households().length + 1}`,
-        contact_name: household.contact_name || user?.fullName || '',
-        contact_phone: household.contact_phone || '',
-        address: household.address || '',
-        default_headcount: household.default_headcount || 2,
-        dietary_notes: household.dietary_notes || '',
-        color_tag: household.color_tag || '#6366f1',
-        is_active: household.is_active ?? true,
-        created_at: new Date().toISOString()
-      };
-      this.households.set([...this.households(), newHh]);
+    try {
+      const created: Household = this.supabase.hasClient
+        ? await this.supabase.createHousehold(household, user?.id)
+        : {
+            id: 'hh-' + Date.now(),
+            name: household.name || 'New Household',
+            code: household.code || `HH-${this.households().length + 1}`,
+            contact_name: household.contact_name || user?.fullName || '',
+            contact_phone: household.contact_phone || '',
+            address: household.address || '',
+            default_headcount: household.default_headcount || 2,
+            dietary_notes: household.dietary_notes || '',
+            color_tag: household.color_tag || '#6366f1',
+            is_active: household.is_active ?? true,
+            created_at: new Date().toISOString()
+          };
+
+      this.households.set([...this.households(), created]);
 
       if (user) {
         const isStaff = ['admin', 'chef'].includes(user.role);
         if (!isStaff || isUnassignedUser) {
           const newMember: HouseholdMember = {
             id: 'hm-' + Date.now(),
-            household_id: newHh.id,
+            household_id: created.id,
             user_id: user.id,
             role_in_household: 'owner',
             username: user.username,
             fullName: user.fullName || user.username
           };
-          this.householdMembers.update(members => [...members, newMember]);
-
-          const currentIds = user.household_ids || [];
-          const currentMems = user.memberships || [];
-          const updatedUser = {
-            ...user,
-            household_id: newHh.id,
-            household_ids: [...currentIds, newHh.id],
-            memberships: [...currentMems, { household_id: newHh.id, role: 'owner' as HouseholdMemberRole }]
-          };
-          this.auth.currentUser.set(updatedUser);
-          localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-        }
-      }
-
-      this.selectedHouseholdId.set(newHh.id);
-      this.lumberjack.logInfo('Household created in local mode', { id: newHh.id, name: newHh.name }, 'HouseholdService');
-      this.notifications.show(`Created household: ${newHh.name}! You are now the household owner.`, 'success');
-      return newHh;
-    }
-
-    try {
-      const created = await this.supabase.createHousehold(household, user?.id);
-      this.households.set([...this.households(), created]);
-
-      if (user) {
-        const isStaff = ['admin', 'chef'].includes(user.role);
-        if (!isStaff || isUnassignedUser) {
-          try {
-            await this.supabase.clientInstance?.from('household_members').upsert(
-              {
-                household_id: created.id,
-                user_id: user.id,
-                role_in_household: 'owner'
-              },
-              { onConflict: 'household_id,user_id' }
-            );
-          } catch (memErr: any) {
-            this.lumberjack.logWarning('Could not insert household_member record', { error: memErr?.message || String(memErr) }, 'HouseholdService');
-          }
-
-          const currentIds = user.household_ids || [];
-          const currentMems = user.memberships || [];
-          const updatedUser = {
-            ...user,
-            household_id: created.id,
-            household_ids: [...currentIds, created.id],
-            memberships: [...currentMems, { household_id: created.id, role: 'owner' as HouseholdMemberRole }]
-          };
-          this.auth.currentUser.set(updatedUser);
-          localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
+          this.householdMembers.update(members => [
+            ...members.filter(m => !(m.household_id === created.id && m.user_id === user.id)),
+            newMember
+          ]);
+          this.addUserMembership(created.id, 'owner', true);
         }
       }
 
       this.selectedHouseholdId.set(created.id);
-      this.lumberjack.logInfo('Household created via Supabase backend', { id: created.id, name: created.name }, 'HouseholdService');
+      this.lumberjack.logInfo('Household created successfully', { id: created.id, name: created.name }, 'HouseholdService');
       this.notifications.show(`Created household: ${created.name}! You are now the household owner.`, 'success');
       return created;
     } catch (err: any) {
@@ -438,27 +421,17 @@ export class HouseholdService {
     }
 
     this.lumberjack.logInfo('Updating household configuration', { id, fields: Object.keys(updates) }, 'HouseholdService');
-    if (!this.supabase.hasClient) {
-      let updatedHh: Household | null = null;
-      const list = this.households().map(h => {
-        if (h.id === id) {
-          updatedHh = { ...h, ...updates };
-          return updatedHh;
-        }
-        return h;
-      });
-      this.households.set(list);
-      this.lumberjack.logInfo('Household updated in local mode', { id }, 'HouseholdService');
-      this.notifications.show('Household updated', 'success');
-      return updatedHh;
-    }
+    const existing = this.householdsMap().get(id);
+    if (!existing && !this.supabase.hasClient) return null;
 
     try {
-      const updated = await this.supabase.updateHousehold(id, updates);
-      const list = this.households().map(h => (h.id === id ? updated : h));
-      this.households.set(list);
-      this.lumberjack.logInfo('Household updated via Supabase backend', { id, name: updated.name }, 'HouseholdService');
-      this.notifications.show(`Updated household: ${updated.name}`, 'success');
+      const updated: Household = this.supabase.hasClient
+        ? await this.supabase.updateHousehold(id, updates)
+        : { ...existing!, ...updates };
+
+      this.households.update(list => list.map(h => (h.id === id ? updated : h)));
+      this.lumberjack.logInfo('Household updated successfully', { id, name: updated.name }, 'HouseholdService');
+      this.notifications.show(this.supabase.hasClient ? `Updated household: ${updated.name}` : 'Household updated', 'success');
       return updated;
     } catch (err: any) {
       this.lumberjack.logError('Failed to update household', { error: err?.message || String(err), id }, 'HouseholdService');
@@ -492,62 +465,21 @@ export class HouseholdService {
     const user = this.auth.currentUser();
 
     this.lumberjack.logInfo('Initiating household deletion', { id, name: hhName }, 'HouseholdService');
-    if (!this.supabase.hasClient) {
-      // 1. Remove household
-      this.households.update(list => list.filter(h => h.id !== id));
-      // 2. Cascade remove members
-      this.householdMembers.update(list => list.filter(m => m.household_id !== id));
-      // 3. Cascade remove invitations
-      this.householdInvitations.update(list => list.filter(i => i.household_id !== id));
-
-      // 4. Update user's household_ids and memberships
-      if (user?.household_ids?.includes(id)) {
-        const updatedIds = user.household_ids.filter(x => x !== id);
-        const updatedMems = (user.memberships || []).filter(m => m.household_id !== id);
-        const updatedUser = {
-          ...user,
-          household_ids: updatedIds,
-          household_id: user.household_id === id ? (updatedIds[0] || null) : user.household_id,
-          memberships: updatedMems
-        };
-        this.auth.currentUser.set(updatedUser);
-        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-      }
-
-      // 5. Reset selected household if it was the deleted one
-      if (this.selectedHouseholdId() === id) {
-        this.selectedHouseholdId.set(null);
-      }
-
-      this.lumberjack.logInfo('Household deleted locally', { id, name: hhName }, 'HouseholdService');
-      this.notifications.show(`Deleted household: ${hhName}`, 'success');
-      return true;
-    }
-
     try {
-      await this.supabase.deleteHousehold(id, user?.id);
+      if (this.supabase.hasClient) {
+        await this.supabase.deleteHousehold(id, user?.id);
+      }
+
       this.households.update(list => list.filter(h => h.id !== id));
       this.householdMembers.update(list => list.filter(m => m.household_id !== id));
       this.householdInvitations.update(list => list.filter(i => i.household_id !== id));
-
-      if (user?.household_ids?.includes(id)) {
-        const updatedIds = user.household_ids.filter(x => x !== id);
-        const updatedMems = (user.memberships || []).filter(m => m.household_id !== id);
-        const updatedUser = {
-          ...user,
-          household_ids: updatedIds,
-          household_id: user.household_id === id ? (updatedIds[0] || null) : user.household_id,
-          memberships: updatedMems
-        };
-        this.auth.currentUser.set(updatedUser);
-        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-      }
+      this.removeUserMembership(id);
 
       if (this.selectedHouseholdId() === id) {
         this.selectedHouseholdId.set(null);
       }
 
-      this.lumberjack.logInfo('Household deleted in Supabase', { id, name: hhName }, 'HouseholdService');
+      this.lumberjack.logInfo('Household deleted successfully', { id, name: hhName }, 'HouseholdService');
       this.notifications.show(`Deleted household: ${hhName}`, 'success');
       return true;
     } catch (err: any) {
@@ -559,34 +491,28 @@ export class HouseholdService {
 
   // Members & Invitations Management
   public async loadHouseholdMembers(householdId: string): Promise<void> {
-    if (!householdId) return;
-    if (!this.supabase.hasClient) {
-      return;
-    }
+    if (!householdId || !this.supabase.hasClient) return;
 
     try {
       const members = await this.supabase.fetchHouseholdMembers(householdId);
-      this.householdMembers.update(current => {
-        const withoutThisHh = current.filter(m => m.household_id !== householdId);
-        return [...withoutThisHh, ...members];
-      });
+      this.householdMembers.update(current => [
+        ...current.filter(m => m.household_id !== householdId),
+        ...members
+      ]);
     } catch (err: any) {
       this.lumberjack.logWarning('Failed to load household members', { error: err?.message || String(err), householdId }, 'HouseholdService');
     }
   }
 
   public async loadHouseholdInvitations(householdId: string): Promise<void> {
-    if (!householdId) return;
-    if (!this.supabase.hasClient) {
-      return;
-    }
+    if (!householdId || !this.supabase.hasClient) return;
 
     try {
       const invs = await this.supabase.fetchHouseholdInvitations(householdId);
-      this.householdInvitations.update(current => {
-        const withoutThisHh = current.filter(i => i.household_id !== householdId);
-        return [...withoutThisHh, ...invs];
-      });
+      this.householdInvitations.update(current => [
+        ...current.filter(i => i.household_id !== householdId),
+        ...invs
+      ]);
     } catch (err: any) {
       this.lumberjack.logWarning('Failed to load household invitations', { error: err?.message || String(err), householdId }, 'HouseholdService');
     }
@@ -608,39 +534,24 @@ export class HouseholdService {
     const hh = this.householdsMap().get(householdId);
     const user = this.auth.currentUser();
 
-    if (!this.supabase.hasClient) {
-      const code = 'TFFN-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-      const expires = new Date(Date.now() + validDays * 86400000).toISOString();
-      const newInv: HouseholdInvitation = {
-        id: 'inv-' + Date.now(),
-        household_id: householdId,
-        invited_by: user?.id,
-        invite_code: code,
-        email: email || undefined,
-        role_in_household: role,
-        status: 'pending',
-        expires_at: expires,
-        created_at: new Date().toISOString(),
-        household_name: hh?.name || 'Household'
-      };
-
-      this.householdInvitations.update(current => [newInv, ...current]);
-      this.lumberjack.logInfo('Invite created locally', { code, householdId }, 'HouseholdService');
-      this.notifications.show(`Generated invite link with code: ${code}`, 'success');
-      return newInv;
-    }
-
     try {
-      const inv = await this.supabase.createHouseholdInvitation(
-        householdId,
-        user?.id || '',
-        role,
-        email,
-        validDays
-      );
-      inv.household_name = hh?.name;
+      const inv: HouseholdInvitation = this.supabase.hasClient
+        ? await this.supabase.createHouseholdInvitation(householdId, user?.id || '', role, email, validDays)
+        : {
+            id: 'inv-' + Date.now(),
+            household_id: householdId,
+            invited_by: user?.id,
+            invite_code: 'TFFN-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
+            email: email || undefined,
+            role_in_household: role,
+            status: 'pending',
+            expires_at: new Date(Date.now() + validDays * 86400000).toISOString(),
+            created_at: new Date().toISOString()
+          };
+
+      inv.household_name = hh?.name || 'Household';
       this.householdInvitations.update(current => [inv, ...current]);
-      this.lumberjack.logInfo('Invite created in Supabase', { code: inv.invite_code, householdId }, 'HouseholdService');
+      this.lumberjack.logInfo('Invite created successfully', { code: inv.invite_code, householdId }, 'HouseholdService');
       this.notifications.show(`Generated invite link: ${inv.invite_code}`, 'success');
       return inv;
     } catch (err: any) {
@@ -652,20 +563,14 @@ export class HouseholdService {
 
   public async revokeInvite(invitationId: string): Promise<void> {
     this.lumberjack.logInfo('Revoking household invite', { invitationId }, 'HouseholdService');
-    if (!this.supabase.hasClient) {
-      this.householdInvitations.update(list => 
-        list.map(i => i.id === invitationId ? { ...i, status: 'revoked' as const } : i)
-      );
-      this.notifications.show('Invitation revoked', 'info');
-      return;
-    }
-
     try {
-      await this.supabase.revokeHouseholdInvitation(invitationId);
-      this.householdInvitations.update(list => 
-        list.map(i => i.id === invitationId ? { ...i, status: 'revoked' as const } : i)
+      if (this.supabase.hasClient) {
+        await this.supabase.revokeHouseholdInvitation(invitationId);
+      }
+      this.householdInvitations.update(list =>
+        list.map(i => (i.id === invitationId ? { ...i, status: 'revoked' as const } : i))
       );
-      this.lumberjack.logInfo('Invitation revoked in Supabase', { invitationId }, 'HouseholdService');
+      this.lumberjack.logInfo('Invitation revoked', { invitationId }, 'HouseholdService');
       this.notifications.show('Invitation revoked', 'info');
     } catch (err: any) {
       this.lumberjack.logError('Failed to revoke invitation', { error: err?.message || String(err), invitationId }, 'HouseholdService');
@@ -681,42 +586,23 @@ export class HouseholdService {
       return;
     }
 
-    const syncCurrentRemovedUser = () => {
-      const user = this.auth.currentUser();
-      if (user && user.id === userId) {
-        const updatedIds = (user.household_ids || []).filter(id => id !== householdId);
-        const updatedMems = (user.memberships || []).filter(m => m.household_id !== householdId);
-        const updatedUser = {
-          ...user,
-          household_ids: updatedIds,
-          household_id: user.household_id === householdId ? (updatedIds[0] || null) : user.household_id,
-          memberships: updatedMems
-        };
-        this.auth.currentUser.set(updatedUser);
-        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
+    try {
+      if (this.supabase.hasClient) {
+        await this.supabase.removeHouseholdMember(householdId, userId);
+      }
+
+      this.householdMembers.update(list =>
+        list.filter(m => !(m.household_id === householdId && m.user_id === userId))
+      );
+
+      if (this.auth.currentUser()?.id === userId) {
+        this.removeUserMembership(householdId);
         if (this.selectedHouseholdId() === householdId) {
           this.selectedHouseholdId.set(null);
         }
       }
-    };
 
-    if (!this.supabase.hasClient) {
-      this.householdMembers.update(list => 
-        list.filter(m => !(m.household_id === householdId && m.user_id === userId))
-      );
-      syncCurrentRemovedUser();
-      this.lumberjack.logInfo('Member removed locally', { householdId, userId }, 'HouseholdService');
-      this.notifications.show('Member removed from household', 'info');
-      return;
-    }
-
-    try {
-      await this.supabase.removeHouseholdMember(householdId, userId);
-      this.householdMembers.update(list => 
-        list.filter(m => !(m.household_id === householdId && m.user_id === userId))
-      );
-      syncCurrentRemovedUser();
-      this.lumberjack.logInfo('Member removed in Supabase', { householdId, userId }, 'HouseholdService');
+      this.lumberjack.logInfo('Member removed successfully', { householdId, userId }, 'HouseholdService');
       this.notifications.show('Member removed from household', 'info');
     } catch (err: any) {
       this.lumberjack.logError('Failed to remove member', { error: err?.message || String(err), householdId, userId }, 'HouseholdService');
@@ -748,7 +634,7 @@ export class HouseholdService {
       }
 
       this.householdInvitations.update(list =>
-        list.map(i => i.id === inv.id ? { ...i, status: 'accepted' as const, accepted_by: user.id } : i)
+        list.map(i => (i.id === inv.id ? { ...i, status: 'accepted' as const, accepted_by: user.id } : i))
       );
 
       const newMember: HouseholdMember = {
@@ -761,18 +647,7 @@ export class HouseholdService {
         created_at: new Date().toISOString()
       };
       this.householdMembers.update(m => [...m, newMember]);
-
-      const currentIds = user.household_ids || [];
-      const currentMems = user.memberships || [];
-      if (!currentIds.includes(inv.household_id)) {
-        const updatedUser = {
-          ...user,
-          household_ids: [...currentIds, inv.household_id],
-          memberships: [...currentMems, { household_id: inv.household_id, role: inv.role_in_household }]
-        };
-        this.auth.currentUser.set(updatedUser);
-        localStorage.setItem('tffin_auth_user', JSON.stringify(updatedUser));
-      }
+      this.addUserMembership(inv.household_id, inv.role_in_household);
 
       const hh = this.householdsMap().get(inv.household_id);
       this.lumberjack.logInfo('Invite accepted locally', { code: cleanCode, householdId: inv.household_id }, 'HouseholdService');

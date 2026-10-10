@@ -134,26 +134,16 @@ export class ProfileComponent implements OnInit {
   });
 
   public userMemberships = computed(() => {
+    if (typeof this.store.userMemberships === 'function') {
+      return this.store.userMemberships();
+    }
     const u = this.currentUser();
     if (!u) return [];
-    if (u.memberships && u.memberships.length > 0) {
-      return u.memberships;
-    }
-    const roster = this.store.householdMembers().filter(m => m.user_id === u.id);
-    if (roster.length > 0) {
-      return roster.map(m => ({
-        household_id: m.household_id,
-        role: m.role_in_household
-      }));
-    }
-    const authed = this.authorizedHouseholds();
-    if (authed.length > 0) {
-      return authed.map(h => ({
-        household_id: h.id,
-        role: (u.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole
-      }));
-    }
-    return [];
+    if (u.memberships && u.memberships.length > 0) return u.memberships;
+    return this.authorizedHouseholds().map(h => ({
+      household_id: h.id,
+      role: (u.role === 'owner' ? 'owner' : 'member') as HouseholdMemberRole
+    }));
   });
 
   ngOnInit(): void {

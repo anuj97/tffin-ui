@@ -22,6 +22,20 @@ export class AuthService {
     this.initSupabaseAuthListener();
   }
 
+  public setSessionUser(user: AppUser, rememberMe: boolean = true): void {
+    this.currentUser.set(user);
+    try {
+      const userJson = JSON.stringify(user);
+      if (rememberMe || !sessionStorage.getItem(STORAGE_KEY)) {
+        localStorage.setItem(STORAGE_KEY, userJson);
+      } else {
+        sessionStorage.setItem(STORAGE_KEY, userJson);
+      }
+    } catch (e) {
+      this.lumberjack.logWarning('Failed to persist auth session', { error: String(e) }, 'AuthService');
+    }
+  }
+
   private loadStoredUser(): AppUser | null {
     try {
       const stored = localStorage.getItem(STORAGE_KEY) || sessionStorage.getItem(STORAGE_KEY);
@@ -53,8 +67,7 @@ export class AuthService {
 
             if (userProfile) {
               this.lumberjack.logInfo('OAuth user profile synchronized successfully', { username: userProfile.username, id: userProfile.id }, 'AuthService');
-              this.currentUser.set(userProfile);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(userProfile));
+              this.setSessionUser(userProfile);
 
               // If currently on login page, redirect to dashboard
               if (this.router.url.includes('/login') || this.router.url === '/') {
@@ -80,8 +93,7 @@ export class AuthService {
     try {
       const refreshed = await this.supabase.fetchAppUserById(user.id);
       if (refreshed) {
-        this.currentUser.set(refreshed);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(refreshed));
+        this.setSessionUser(refreshed);
         return refreshed;
       }
     } catch (e: any) {
@@ -112,8 +124,7 @@ export class AuthService {
       }
 
       const updatedUser = res.data || { ...current, ...updates };
-      this.currentUser.set(updatedUser);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+      this.setSessionUser(updatedUser);
       this.lumberjack.logInfo('User profile saved successfully in Supabase', { userId: current.id }, 'AuthService');
       return { success: true, user: updatedUser };
     } catch (err: any) {
@@ -223,15 +234,7 @@ export class AuthService {
       }
 
       this.lumberjack.logInfo('User successfully authenticated', { username: user.username, role: user.role, id: user.id }, 'AuthService');
-      this.currentUser.set(user);
-
-      // Persist session
-      const userJson = JSON.stringify(user);
-      if (rememberMe) {
-        localStorage.setItem(STORAGE_KEY, userJson);
-      } else {
-        sessionStorage.setItem(STORAGE_KEY, userJson);
-      }
+      this.setSessionUser(user, rememberMe);
 
       return { success: true };
     } catch (err: any) {
